@@ -1572,7 +1572,7 @@ custom_css = """
 }
 """
 
-with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor") as demo:
+with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.themes.Soft(), css=custom_css) as demo:
     gr.HTML("""
     <div class="header-box">
         <h1 style="margin: 0; font-size: 26px; font-weight: 700;">
@@ -2024,4 +2024,4 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft(), css=custom_css, show_error=True)
+    demo.launch(show_error=True)
