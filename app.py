@@ -24,6 +24,27 @@ from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
 
+# Vá lỗi tương thích giữa Gradio 4.44 và Starlette 0.38+ / 1.0+ (TypeError: unhashable type: 'dict')
+try:
+    import inspect
+    import starlette.templating
+    _orig_template_response = starlette.templating.Jinja2Templates.TemplateResponse
+    _sig_params = list(inspect.signature(_orig_template_response).parameters.keys())
+    if "request" in _sig_params and _sig_params.index("request") == 1:
+        def _patched_template_response(self, *args, **kwargs):
+            if len(args) >= 1 and isinstance(args[0], str):
+                name = args[0]
+                context = args[1] if len(args) > 1 and isinstance(args[1], dict) else kwargs.get("context", {})
+                request = kwargs.get("request")
+                if request is None and isinstance(context, dict):
+                    request = context.get("request")
+                other_kwargs = {k: v for k, v in kwargs.items() if k not in ("request", "name", "context")}
+                return _orig_template_response(self, request=request, name=name, context=context, **other_kwargs)
+            return _orig_template_response(self, *args, **kwargs)
+        starlette.templating.Jinja2Templates.TemplateResponse = _patched_template_response
+except Exception as _e_patch:
+    pass
+
 # Hỗ trợ Hugging Face ZeroGPU (NVIDIA A10G)
 try:
     import spaces
@@ -181,7 +202,8 @@ VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8s_vehicle.pt"
 COCO_VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
 
 print("🚀 Đang khởi động hệ thống AI Giám sát Ngập lụt & Ùn tắc Giao thông...")
-if torch.cuda.is_available():
+is_zero_gpu = bool(os.environ.get("SPACES_ZERO_GPU"))
+if torch.cuda.is_available() and not is_zero_gpu:
     device = "cuda:0"
     torch.backends.cudnn.benchmark = True
     gpu_name = torch.cuda.get_device_name(0)
@@ -189,7 +211,10 @@ if torch.cuda.is_available():
     print(f"   [+] Thiết bị suy luận: {device} ({gpu_name} - {gpu_vram_mb} MB VRAM)")
 else:
     device = "cpu"
-    print(f"   [+] Thiết bị suy luận: {device}")
+    if is_zero_gpu:
+        print("   [+] Chế độ Hugging Face ZeroGPU: GPU được cấp phát động an toàn khi xử lý (@spaces.GPU)")
+    else:
+        print(f"   [+] Thiết bị suy luận: {device}")
 
 # Tải các mô hình Phân đoạn ngập lụt & Theo dõi phương tiện (cho Tab Ùn tắc)
 flood_model_vietnam = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
@@ -199,8 +224,8 @@ flood_model_old = YOLO(str(FLOOD_MODEL_OLD_PATH)) if FLOOD_MODEL_OLD_PATH.exists
 flood_model = flood_model_vietnam if flood_model_vietnam is not None else (flood_model_new if flood_model_new is not None else flood_model_old)
 vehicle_model = YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None)
 
-# Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup để không bị trễ ở khung hình đầu tiên
-if torch.cuda.is_available():
+# Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
+if torch.cuda.is_available() and not is_zero_gpu:
     try:
         for m_obj in (flood_model_vietnam, flood_model_new, flood_model_old, vehicle_model):
             if m_obj is not None:
