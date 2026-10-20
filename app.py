@@ -24,6 +24,18 @@ from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
 
+# Hỗ trợ Hugging Face ZeroGPU (NVIDIA A10G)
+try:
+    import spaces
+except ImportError:
+    class _MockSpaces:
+        @staticmethod
+        def GPU(fn=None, duration=None):
+            def decorator(f):
+                return f
+            return decorator(fn) if fn else decorator
+    spaces = _MockSpaces()
+
 from fixed_object_gauge import (
     VirtualStaffGauge,
     draw_calibration_preview,
@@ -932,6 +944,7 @@ def on_tab5_remove_active_gauge(active_gid, state_data, calib_mode="2 Điểm (�
     )
 
 
+@spaces.GPU(duration=120)
 def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     """Chạy suy luận trực tiếp trên Ảnh, Video hoặc Camera theo Thủy chuẩn Cột mốc."""
     LIVE_STREAM_STATE["run_id"] += 1
@@ -1379,6 +1392,7 @@ def on_traffic_clear_roi(state_data):
 
 
 
+@spaces.GPU(duration=120)
 def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
     """Chạy suy luận trực tiếp đánh giá độ ùn tắc giao thông (YOLO + ByteTrack) trên Ảnh, Video hoặc Camera."""
     LIVE_STREAM_STATE["run_id"] += 1
