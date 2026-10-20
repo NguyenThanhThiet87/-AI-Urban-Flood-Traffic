@@ -2038,4 +2038,4 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
 
 if __name__ == "__main__":
-    demo.launch(show_error=True)
+    demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False, show_error=True)
