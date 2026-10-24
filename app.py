@@ -1736,14 +1736,6 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             )
                             btn_tab5_delete_gauge = gr.Button("🗑️ Xóa cột mốc", variant="stop", scale=1)
 
-                        with gr.Row():
-                            gr.Markdown(
-                                "<div style='padding: 10px 14px; background: rgba(56, 189, 248, 0.08); border-left: 4px solid #38bdf8; border-radius: 6px; font-size: 13px; line-height: 1.6;'>"
-                                "📐 <b>Quy Chuẩn Hiệu Chuẩn:</b> <b>3 Điểm Khử Phối Cảnh Quang Học</b> (1. Đáy $0\\text{ cm} \\rightarrow$ 2. Giữa $H/2 \\rightarrow$ 3. Đỉnh $H\\text{ cm}$ theo tỉ số kép 1D Hartley & Zisserman).<br>"
-                                "⚖️ <b>Quy Chuẩn Hợp Nhất Đa Mốc:</b> <b>Gia Quyền Phối Cảnh Tối Ưu (IEEE BLUE Fusion)</b> (Trọng số $w_k = \\text{Conf}_k \\cdot \\sqrt{\\rho_k}$ theo Hall & Llinas, IEEE 1997)."
-                                "</div>"
-                            )
-
                         tab5_flood_conf = gr.Slider(0.10, 0.90, value=0.25, step=0.05, label="🎯 Ngưỡng Nước (Flood Conf)")
 
                 # CỘT BÊN PHẢI: HIỂN THỊ KHUNG HÌNH VIDEO & THIẾT LẬP MẪU MỐC THƯỚC ĐO
