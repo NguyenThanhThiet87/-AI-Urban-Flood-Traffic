@@ -139,9 +139,9 @@ class VirtualStaffGauge:
         h_end_cm=100.0,
         color_bgr=None,
         color_hex=None,
-        calib_mode="2_points"
+        calib_mode="3_points"
     ):
-        """Thiết lập cấu hình mốc chuẩn và hiệu chuẩn mẫu khô."""
+        """Thiết lập cấu hình mốc chuẩn và hiệu chuẩn mẫu khô (Quy chuẩn 3 điểm khử phối cảnh)."""
         self.name = name
         self.p_bottom = (int(p_bottom[0]), int(p_bottom[1]))
         self.p_top = (int(p_top[0]), int(p_top[1]))
@@ -698,9 +698,9 @@ LANDMARK_PRESETS = {
 }
 
 
-def draw_calibration_preview(base_img, p_bottom=None, p_top=None, p_mid=None, name="", height_cm=100.0, warning_cm=25.0, click_step=0, r_M=0.5, calib_mode="2_points", strip_width=20, h_start_cm=0.0, h_end_cm=100.0):
+def draw_calibration_preview(base_img, p_bottom=None, p_top=None, p_mid=None, name="", height_cm=100.0, warning_cm=25.0, click_step=0, r_M=0.5, calib_mode="3_points", strip_width=20, h_start_cm=0.0, h_end_cm=100.0):
     """
-    Vẽ ảnh xem trước hướng dẫn người dùng chấm điểm thiết lập thước đo đơn lẻ (tương thích ngược).
+    Vẽ ảnh xem trước hướng dẫn người dùng chấm điểm thiết lập thước đo đơn lẻ (Chuẩn 3 điểm Cross-Ratio).
     """
     if base_img is None:
         return None
@@ -715,7 +715,7 @@ def draw_calibration_preview(base_img, p_bottom=None, p_top=None, p_mid=None, na
         cv2.circle(out, (bx, by), 10, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(out, f"1. Day ({int(h_start_cm)}cm)", (bx + 12, by + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 0), 1, cv2.LINE_AA)
 
-    if calib_mode == "3_points" and p_mid is not None:
+    if p_mid is not None:
         mx, my = int(p_mid[0]), int(p_mid[1])
         cv2.circle(out, (mx, my), 5, (255, 200, 0), -1, cv2.LINE_AA)
         cv2.circle(out, (mx, my), 9, (255, 255, 255), 1, cv2.LINE_AA)
@@ -725,8 +725,7 @@ def draw_calibration_preview(base_img, p_bottom=None, p_top=None, p_mid=None, na
         tx, ty = int(p_top[0]), int(p_top[1])
         cv2.circle(out, (tx, ty), 6, (0, 215, 255), -1, cv2.LINE_AA)
         cv2.circle(out, (tx, ty), 10, (255, 255, 255), 1, cv2.LINE_AA)
-        top_lbl = "3. Dinh" if calib_mode == "3_points" else "2. Dinh"
-        cv2.putText(out, f"{top_lbl} ({int(h_end_cm)}cm)", (tx + 12, ty + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 215, 255), 1, cv2.LINE_AA)
+        cv2.putText(out, f"3. Dinh ({int(h_end_cm)}cm)", (tx + 12, ty + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 215, 255), 1, cv2.LINE_AA)
 
         temp_gauge = VirtualStaffGauge(
             name=clean_name, p_bottom=p_bottom, p_top=p_top, p_mid=p_mid,
@@ -752,13 +751,13 @@ def draw_multi_calibration_preview(
     warning_cm=25.0,
     click_step=0,
     r_M=0.5,
-    calib_mode="2_points",
+    calib_mode="3_points",
     strip_width=20,
     cur_name=None,
     **kwargs
 ):
     """
-    Vẽ ảnh xem trước đa mốc: hiển thị tất cả các mốc đã hoàn tất kèm mốc đang chấm điểm.
+    Vẽ ảnh xem trước đa mốc: hiển thị tất cả các mốc đã hoàn tất kèm mốc đang chấm điểm theo Chuẩn 3 Điểm.
     """
     if cur_name is not None and not name:
         name = cur_name
@@ -795,8 +794,8 @@ def draw_multi_calibration_preview(
         bot_txt = f"1. Diem dau ({int(h_s_val)}cm)" if h_e_val > h_s_val else "1. Diem dau"
         cv2.putText(out, bot_txt, (bx + 12, by + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 255, 0), 1, cv2.LINE_AA)
 
-    # 4. Vẽ điểm Giữa M
-    if calib_mode == "3_points" and p_mid is not None:
+    # 4. Vẽ điểm Giữa M (H/2)
+    if p_mid is not None:
         mx, my = int(p_mid[0]), int(p_mid[1])
         cv2.circle(out, (mx, my), 5, (255, 200, 0), -1, cv2.LINE_AA)
         cv2.circle(out, (mx, my), 9, active_color_bgr, 1, cv2.LINE_AA)
@@ -809,8 +808,7 @@ def draw_multi_calibration_preview(
         tx, ty = int(p_top[0]), int(p_top[1])
         cv2.circle(out, (tx, ty), 6, (0, 215, 255), -1, cv2.LINE_AA)
         cv2.circle(out, (tx, ty), 10, active_color_bgr, 1, cv2.LINE_AA)
-        top_prefix = "3. Diem cuoi" if calib_mode == "3_points" else "2. Diem cuoi"
-        top_txt = f"{top_prefix} ({int(h_e_val)}cm)" if h_e_val > h_s_val else top_prefix
+        top_txt = f"3. Diem cuoi ({int(h_e_val)}cm)" if h_e_val > h_s_val else "3. Diem cuoi"
         cv2.putText(out, top_txt, (tx + 12, ty + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 215, 255), 1, cv2.LINE_AA)
 
         preview_end_cm = h_e_val if h_e_val > h_s_val else (h_s_val + 100.0)
@@ -841,7 +839,7 @@ class MultiVirtualStaffGaugeManager:
     1. Quy tắc 1 (Mốc thấp ngập, mốc cao khô): Lấy 100% số đo mốc thấp (Z = Z_low). Mốc khô gán W=0.
     2. Quy tắc 2 (Mốc 1 ngập lút đầu, mốc 2 ngập): Bàn giao số đo cho mốc 2 (Z = Z_high), khóa sàn cứng Z >= H_end_1.
     3. Quy tắc 3 (Cả 2 ngập tuốt qua đầu): Lấy đỉnh mốc cao nhất Z >= max(H_end) kèm Còi báo động đỏ tràn đỉnh Cấp 5.
-    4. Quy tắc 4 (Nhiều mốc cùng đo): Tính trung bình (bình quân gia quyền phối cảnh hoặc trung bình cộng đơn giản).
+    4. Quy tắc 4 (Nhiều mốc cùng đo): Hợp nhất tối ưu gia quyền phối cảnh (IEEE BLUE Multi-Gauge Fusion).
     """
     def __init__(self):
         self.gauges = {}
@@ -849,18 +847,14 @@ class MultiVirtualStaffGaugeManager:
         self.smoothed_fused_z = 0.0
         self.last_valid_time = 0.0
         self.tau_temporal = 0.8
-        self.fusion_average_mode = "weighted"  # 'weighted' (Gia quyền phối cảnh) hoặc 'simple' (Trung bình cộng)
+        self.fusion_average_mode = "weighted"  # Chuẩn hóa duy nhất: Gia quyền phối cảnh IEEE BLUE
 
         # Khởi tạo mốc mặc định ban đầu
         self.add_gauge(name="Gốc cây ven đường", h_start_cm=0.0, h_end_cm=100.0, warning_cm=25.0, gauge_id="gauge_1")
 
-    def set_fusion_average_mode(self, mode: str):
-        """Thiết lập chế độ tính trung bình khi nhiều mốc cùng ngập (Quy tắc 4)."""
-        mode_str = str(mode).lower()
-        if "simple" in mode_str or "đơn giản" in mode_str or "cộng" in mode_str:
-            self.fusion_average_mode = "simple"
-        else:
-            self.fusion_average_mode = "weighted"
+    def set_fusion_average_mode(self, mode: str = "weighted"):
+        """Quy chuẩn hợp nhất tối ưu gia quyền phối cảnh (IEEE BLUE Multi-Gauge Fusion)."""
+        self.fusion_average_mode = "weighted"
 
 
     def add_gauge(self, name="Mốc Mới", h_start_cm=0.0, h_end_cm=100.0, warning_cm=25.0, gauge_id=None, preset_key=None):
@@ -914,7 +908,7 @@ class MultiVirtualStaffGaugeManager:
         if gauge_id in self.gauges:
             self.active_id = gauge_id
 
-    def configure_active_gauge(self, p_bottom, p_top, p_mid=None, name=None, h_start_cm=None, h_end_cm=None, warning_cm=None, base_frame=None, calib_mode="2_points", r_M=0.5):
+    def configure_active_gauge(self, p_bottom, p_top, p_mid=None, name=None, h_start_cm=None, h_end_cm=None, warning_cm=None, base_frame=None, calib_mode="3_points", r_M=0.5):
         g = self.get_active_gauge()
         if g is None:
             return
@@ -1116,15 +1110,11 @@ class MultiVirtualStaffGaugeManager:
                     active_rule = "RULE_1_SINGLE_ACTIVE"
                     rule_desc = f"[Quy tắc 1] Đo theo {single_m['gauge'].name} (Z = {raw_fused_z:.1f} cm, các mốc cao khô ráo)"
             else:
-                # Quy tắc 4: Hai hoặc nhiều mốc cùng đo đồng thời
+                # Quy tắc 4: Hai hoặc nhiều mốc cùng đo đồng thời (Hợp nhất gia quyền phối cảnh IEEE BLUE)
                 active_rule = "RULE_4_MULTI_STAGE_AVERAGE"
                 total_w = sum(m['weight'] for m in measured_list)
-                if self.fusion_average_mode == "simple":
-                    raw_fused_z = sum(m['z_val'] for m in measured_list) / len(measured_list)
-                    mode_label = f"Trung bình cộng {len(measured_list)} mốc"
-                else:
-                    raw_fused_z = sum(m['z_val'] * m['weight'] for m in measured_list) / max(1e-5, total_w)
-                    mode_label = f"Bình quân gia quyền {len(measured_list)} mốc"
+                raw_fused_z = sum(m['z_val'] * m['weight'] for m in measured_list) / max(1e-5, total_w)
+                mode_label = f"Gia quyền phối cảnh IEEE {len(measured_list)} mốc"
                 peak_z = max(m['z_val'] for m in measured_list)
 
                 # Chốt chặn phân tầng nếu có mốc thấp hơn đã chìm hoàn toàn
@@ -1439,17 +1429,28 @@ def process_single_frame_gauge(frame_bgr, gauge, flood_model, flood_conf=0.25):
 
     if flood_model is not None:
         f_res = flood_model.predict(
-            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=640, retina_masks=True, device=INFER_DEVICE, verbose=False
+            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=800, retina_masks=True, device=INFER_DEVICE, verbose=False
         )[0]
         if f_res.masks is not None and len(f_res.masks.data) > 0:
             combined_gpu = torch.amax(f_res.masks.data, dim=0)
             m_np = combined_gpu.cpu().numpy()
             water_mask = cv2.resize(m_np, (w, h), interpolation=cv2.INTER_LINEAR)
+            # Dọn sạch đốm nhiễu nhỏ bảo toàn sắc nét viền
+            bin_m = (water_mask >= float(flood_conf)).astype(np.uint8)
+            if np.any(bin_m > 0):
+                num_lbl, lbls, stats, _ = cv2.connectedComponentsWithStats(bin_m, connectivity=8)
+                clean_m = np.zeros_like(bin_m, dtype=np.float32)
+                for i in range(1, num_lbl):
+                    if stats[i, cv2.CC_STAT_AREA] >= 150:
+                        clean_m[lbls == i] = 1.0
+                water_mask = np.where(clean_m > 0, np.maximum(water_mask, float(flood_conf)), 0.0).astype(np.float32)
+            else:
+                water_mask = np.zeros((h, w), dtype=np.float32)
 
     out_frame = frame_bgr.copy()
-    if np.any(water_mask > 0.20):
+    if np.any(water_mask >= float(flood_conf)):
         blue_layer = np.zeros_like(out_frame)
-        blue_layer[water_mask > 0.20] = [235, 140, 40]
+        blue_layer[water_mask >= float(flood_conf)] = [235, 140, 40]
         out_frame = cv2.addWeighted(out_frame, 1.0, blue_layer, 0.30, 0)
 
     ann_bgr, measured_cm, is_alarm, status, conf = gauge.render_on_frame(
@@ -1467,23 +1468,54 @@ def process_single_frame_multi_gauge(frame_bgr, multi_manager, flood_model, floo
     """
     Xử lý 1 khung hình cho Mạng lưới Đa Mốc Thủy Chuẩn:
     Xuất ra ảnh annotate đa mốc, chỉ số Z_fused, Z_peak, báo động, bảng thống kê và chi tiết HTML.
+    Tích hợp Lọc Ngưỡng Trễ Kép (Hysteresis) phản hồi tức thời per-frame.
     """
     h, w = frame_bgr.shape[:2]
     water_mask = np.zeros((h, w), dtype=np.float32)
 
     if flood_model is not None:
         f_res = flood_model.predict(
-            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=640, retina_masks=True, device=INFER_DEVICE, verbose=False
+            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=800, retina_masks=True, device=INFER_DEVICE, verbose=False
         )[0]
         if f_res.masks is not None and len(f_res.masks.data) > 0:
             combined_gpu = torch.amax(f_res.masks.data, dim=0)
             m_np = combined_gpu.cpu().numpy()
-            water_mask = cv2.resize(m_np, (w, h), interpolation=cv2.INTER_LINEAR)
+            raw_w_mask = cv2.resize(m_np, (w, h), interpolation=cv2.INTER_LINEAR)
+
+            # 1. Lọc Ngưỡng Trễ Kép (Dual-Threshold Hysteresis)
+            t_base = float(flood_conf)
+            t_high = max(t_base * 1.30, 0.35)
+            t_low = max(t_base * 0.70, 0.16)
+
+            core_seeds = (raw_w_mask >= t_high).astype(np.uint8)
+            candidates = (raw_w_mask >= t_low).astype(np.uint8)
+
+            if np.any(candidates > 0):
+                if np.any(core_seeds > 0):
+                    num_lbl, lbls, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
+                    core_labels = np.unique(lbls[core_seeds > 0])
+                    core_labels = core_labels[core_labels > 0]
+                    clean_m = np.zeros_like(candidates, dtype=np.float32)
+                    for lbl in core_labels:
+                        if stats[lbl, cv2.CC_STAT_AREA] >= 150:
+                            clean_m[lbls == lbl] = 1.0
+                else:
+                    num_lbl, lbls, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
+                    clean_m = np.zeros_like(candidates, dtype=np.float32)
+                    for i in range(1, num_lbl):
+                        if stats[i, cv2.CC_STAT_AREA] >= 300:
+                            clean_m[lbls == i] = 1.0
+                current_mask = np.where(clean_m > 0, np.maximum(raw_w_mask, t_low), 0.0).astype(np.float32)
+            else:
+                current_mask = np.zeros((h, w), dtype=np.float32)
+
+            # Phản hồi tức thời từng khung hình (zero-lag per-frame)
+            water_mask = current_mask
 
     out_frame = frame_bgr.copy()
-    if np.any(water_mask > 0.20):
+    if np.any(water_mask >= float(flood_conf)):
         blue_layer = np.zeros_like(out_frame)
-        blue_layer[water_mask > 0.20] = [235, 140, 40]
+        blue_layer[water_mask >= float(flood_conf)] = [235, 140, 40]
         out_frame = cv2.addWeighted(out_frame, 1.0, blue_layer, 0.30, 0)
 
     ann_bgr, fused_z, is_alarm, status, conf, fused_dict, details = multi_manager.render_multi_on_frame(

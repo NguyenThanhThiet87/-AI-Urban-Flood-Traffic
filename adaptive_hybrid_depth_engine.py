@@ -2,16 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-🌊 ADAPTIVE HYBRID FLOOD DEPTH ESTIMATION ENGINE (TAB 5)
-Kết hợp 2 Phương pháp Đo Lường Thủy Văn Đô Thị Bổ Trợ Nhau:
-1. Dựa trên Phương tiện: Tái tạo Bounding Box chìm (Amodal BBox) theo tỷ lệ bất biến
-   QCVN 14 & 09:2015/BGTVT, giải quyết triệt để "Nghịch lý BBox bị cắt cụt" khi bánh xe chìm.
-2. Dựa trên Vật làm mốc (Thủy chuẩn vật thể cố định): Sử dụng thước đo phối cảnh LUT O(1).
-3. Bộ điều phối Trọng tài Thích ứng (Adaptive Arbiter):
-   - Giờ cao điểm (Traffic Active): Đo theo lốp xe + Tự học chênh cao tim đường Delta_h.
-   - Giờ vắng xe / Đêm khuya (Traffic Idle): Đo theo mốc vỉa hè + Bù trừ Delta_h.
-   - Ngập cực hạn (>70cm): Phát hiện xe nổi bồng bềnh (Buoyancy Check) -> Chuyển sang mốc cao tầng.
-4. Giao diện HUD X-Ray trực quan: Hộp nổi xanh lá, Hộp chìm cam X-Ray, Vạch tiếp đất vàng dạ quang.
+🌊 VIRTUAL STAFF GAUGE FLOOD DEPTH ESTIMATION ENGINE (TAB 1)
+Đo Lường Thủy Văn Đô Thị Bằng Thước Ảo Thủy Chuẩn Cố Định (SCSG-Net):
+1. Dựa trên Vật làm mốc (Thủy chuẩn vật thể cố định): Sử dụng thước đo phối cảnh LUT O(1).
+2. Hệ Thống Thủy Chuẩn Đa Mốc SCSG-Net: Tự động phát hiện vạch ngập và hợp nhất cao trình.
+3. Giao diện HUD X-Ray trực quan: Mặt nạ nước RetinaMask, Vạch chỉ mốc, Shoreline và Banner cảnh báo.
 ================================================================================
 """
 
@@ -44,248 +39,6 @@ class HybridDepthReport:
     details: Dict = field(default_factory=dict)
 
 
-class VehicleAmodalDepthEstimator:
-    """
-    Ước lượng độ sâu ngập dựa trên Phương tiện giải quyết Nghịch lý BBox cắt cụt.
-    Khi bánh xe bị ngập, bộ phát hiện đối tượng cắt cụt BBox tại mép nước (y2).
-    Thuật toán dùng chiều rộng ngang bất biến (W_box) và tỷ lệ chuẩn theo luật Việt Nam
-    để khôi phục vị trí tiếp đất của lốp xe (y_ground) dưới mặt nước.
-    """
-
-    # Tỷ lệ khung xe chuẩn theo Quy chuẩn Kỹ thuật Quốc gia QCVN 14 & 09:2015/BGTVT
-    CANONICAL_RATIOS_BY_VIEW = {
-        'motorcycle': {
-            'front_rear': 1.60,   # Honda Wave/Vision: Rộng ~68-70cm, Cao ~110-112cm (W/H < 0.85)
-            'quarter': 1.10,      # Góc 45 độ (0.85 <= W/H <= 1.35)
-            'side': 0.60          # Dài ~190cm, Cao ~110cm (W/H > 1.35)
-        },
-        'car': {
-            'front_rear': 0.84,   # Sedan Vios/Accent: Rộng ~173-175cm, Cao ~145-147cm (W/H < 1.40)
-            'quarter': 0.55,      # (1.40 <= W/H <= 2.20)
-            'side': 0.32          # Dài ~440-450cm, Cao ~145cm (W/H > 2.20)
-        },
-        'truck': {
-            'front_rear': 1.18,   # Xe tải nhẹ Thaco/Kia: Rộng ~175-185cm, Cao ~210-235cm
-            'quarter': 0.60,
-            'side': 0.38
-        },
-        'bus': {
-            'front_rear': 1.26,   # Xe buýt đô thị: Rộng ~250cm, Cao ~315cm
-            'quarter': 0.62,
-            'side': 0.30
-        },
-        'default': {
-            'front_rear': 1.40,
-            'quarter': 0.90,
-            'side': 0.50
-        }
-    }
-
-    # Chiều cao thực tế toàn thân chuẩn (cm) từ mặt đất đến nóc/gương
-    CANONICAL_REAL_HEIGHTS = {
-        'motorcycle': 110.0,
-        'car': 147.0,
-        'truck': 235.0,
-        'bus': 315.0,
-        'default': 120.0
-    }
-
-    # Ngưỡng chịu tải thủy lực tối đa trước khi phương tiện bị nổi bồng bềnh hoặc mất bám (cm)
-    BUOYANCY_LIMITS = {
-        'motorcycle': 50.0,  # Xe máy mất bám/cuốn trôi ở mức >50cm
-        'car': 60.0,         # Ô tô con nổi bồng bềnh ở mức >55-60cm
-        'truck': 110.0,
-        'bus': 120.0,
-        'default': 50.0
-    }
-
-    def __init__(self, camera_pitch_deg: float = 15.0, min_box_width_px: float = 40.0, max_scale_cm_per_px: float = 3.0):
-        self.track_history = {}     # {track_id: [depth_measurements]}
-        self.bbox_smoothing = {}    # {track_id: (x1, y1, x2, y2)}
-        self.camera_pitch_deg = float(camera_pitch_deg)
-        self.min_box_width_px = float(min_box_width_px)
-        self.max_scale_cm_per_px = float(max_scale_cm_per_px)
-
-    def classify_view_orientation(self, vehicle_class: str, visible_w: float, visible_h: float) -> str:
-        """
-        Phân loại góc nhìn phương tiện dựa trên tỷ lệ hộp nhìn thấy được.
-        Ngưỡng được tinh chỉnh chịu ngập (Flood-tolerant): Khi xe bị ngập, H_vis giảm làm aspect = W / H_vis tăng,
-        ngưỡng mở rộng giúp phân loại chính xác ngay cả khi xe đang ngập lội nước.
-        """
-        aspect = visible_w / max(1.0, visible_h)
-        if vehicle_class in ('motorcycle', 'bicycle'):
-            if aspect < 1.05:
-                return 'front_rear'
-            elif aspect <= 1.65:
-                return 'quarter'
-            else:
-                return 'side'
-        elif vehicle_class in ('car', 'suv'):
-            if aspect < 1.75:
-                return 'front_rear'
-            elif aspect <= 2.60:
-                return 'quarter'
-            else:
-                return 'side'
-        else:
-            if aspect < 1.35:
-                return 'front_rear'
-            elif aspect <= 2.20:
-                return 'quarter'
-            else:
-                return 'side'
-
-    def estimate_single_vehicle(self, bbox: Tuple[int, int, int, int], vehicle_class: str,
-                                flood_mask: Optional[np.ndarray] = None,
-                                track_id: Optional[int] = None,
-                                camera_pitch_deg: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Tính toán độ sâu ngập của một phương tiện đơn lẻ (Chuẩn hóa độ phân giải & Camera):
-        1. Làm mượt tọa độ BBox theo thời gian (Temporal EMA Smoothing)
-        2. Bù trừ góc chúc camera trên cao (Pitch Angle Compensation)
-        3. Cắt lọc bóng phản chiếu mặt nước (Reflection Snapping)
-        4. Kiểm tra độ tin cậy cự ly pixel (Min-Pixel Footprint Gate)
-        """
-        raw_x1, raw_y1, raw_x2, raw_y2 = bbox
-
-        # 1. Làm mượt tọa độ BBox theo thời gian qua EMA (Khử rung giật do nén video H.264 & sóng nước)
-        if track_id is not None:
-            if track_id in self.bbox_smoothing:
-                prev_b = self.bbox_smoothing[track_id]
-                alpha = 0.70  # Trọng số khung hình hiện tại
-                x1 = alpha * raw_x1 + (1.0 - alpha) * prev_b[0]
-                y1 = alpha * raw_y1 + (1.0 - alpha) * prev_b[1]
-                x2 = alpha * raw_x2 + (1.0 - alpha) * prev_b[2]
-                y2 = alpha * raw_y2 + (1.0 - alpha) * prev_b[3]
-            else:
-                x1, y1, x2, y2 = raw_x1, raw_y1, raw_x2, raw_y2
-            self.bbox_smoothing[track_id] = (x1, y1, x2, y2)
-        else:
-            x1, y1, x2, y2 = raw_x1, raw_y1, raw_x2, raw_y2
-
-        w_box = max(2.0, float(x2 - x1))
-        h_vis = max(2.0, float(y2 - y1))
-
-        v_cls = vehicle_class.lower()
-        if 'motor' in v_cls or 'bike' in v_cls:
-            mapped_cls = 'motorcycle'
-        elif 'truck' in v_cls:
-            mapped_cls = 'truck'
-        elif 'bus' in v_cls:
-            mapped_cls = 'bus'
-        elif 'car' in v_cls or 'sedan' in v_cls or 'suv' in v_cls:
-            mapped_cls = 'car'
-        else:
-            mapped_cls = 'default'
-
-        orientation = self.classify_view_orientation(mapped_cls, w_box, h_vis)
-        ratio_table = self.CANONICAL_RATIOS_BY_VIEW.get(mapped_cls, self.CANONICAL_RATIOS_BY_VIEW['default'])
-        canonical_ratio = ratio_table.get(orientation, 1.0)
-        h_real = self.CANONICAL_REAL_HEIGHTS.get(mapped_cls, 120.0)
-
-        # 2. Bù trừ góc chúc camera trên cao (Camera Pitch Compensation)
-        pitch = float(camera_pitch_deg) if camera_pitch_deg is not None else self.camera_pitch_deg
-        pitch_rad = math.radians(max(0.0, min(75.0, pitch)))
-        cos_pitch = max(0.25, math.cos(pitch_rad))
-        effective_canonical_ratio = canonical_ratio / cos_pitch
-
-        # Tính toán chiều cao toàn thân dự kiến (pixel) và vị trí tiếp đất ảo dưới nước
-        expected_full_h_px = w_box * effective_canonical_ratio
-        y_ground = int(round(y1 + expected_full_h_px))
-
-        # Thang đo mm/pixel bất biến
-        px_to_cm_scale = h_real / max(1.0, expected_full_h_px)
-
-        # 3. Kiểm tra độ tin cậy cự ly pixel (Min-Pixel Footprint Gate): Loại bỏ xe quá xa ở hậu cảnh
-        is_distance_reliable = bool(w_box >= self.min_box_width_px and px_to_cm_scale <= self.max_scale_cm_per_px)
-
-        # 4. Tìm mực nước waterline & Khử bóng phản chiếu mặt nước (Reflection Snapping)
-        has_water = False
-        waterline_y = y2
-
-        if flood_mask is not None:
-            # Quét mặt nạ nước trong vùng chân xe
-            img_h, img_w = flood_mask.shape[:2]
-            cx_min = max(0, int(x1))
-            cx_max = min(img_w, int(x2))
-            cy_min = max(0, int(y1 + h_vis * 0.4))
-            cy_max = min(img_h, max(int(y2 + 20), int(y_ground + 10)))
-
-            if cx_max > cx_min and cy_max > cy_min:
-                roi_mask = flood_mask[cy_min:cy_max, cx_min:cx_max]
-                water_pixels = np.where(roi_mask > 0.3)
-                if len(water_pixels[0]) > 10:
-                    has_water = True
-                    # Waterline là vị trí pixel nước cao nhất (y nhỏ nhất) tiếp xúc với xe
-                    waterline_y = int(cy_min + np.min(water_pixels[0]))
-
-                    # Reflection Snapping: Nếu BBox bị bóng soi nước kéo dài quá waterline >15px, cắt gọn về ngấn nước
-                    if y2 > waterline_y + 15:
-                        y2 = float(waterline_y)
-                        h_vis = max(2.0, float(y2 - y1))
-
-        # Áp dụng Van Khóa 3 Lớp (Strict 3-Gate Trigger Filter)
-        # Gate 1: Kiểm tra tiếp xúc vùng nước flood_mask
-        # Gate 2: Kiểm tra tỷ lệ co rút chiều cao H_vis / H_full_px < 0.95 (lốp xe bị che khuất)
-        shrinkage_ratio = h_vis / max(1.0, expected_full_h_px)
-
-        is_submerged = False
-        if flood_mask is not None:
-            # Nếu có mặt nạ nước: Bắt buộc chân xe phải chạm nước VÀ có hiện tượng co rút hộp
-            if has_water and shrinkage_ratio < 0.95:
-                is_submerged = True
-        else:
-            # Nếu không có mặt nạ nước: Phải có sự co rút rõ rệt so với chuẩn QCVN
-            if shrinkage_ratio < 0.95:
-                is_submerged = True
-
-        if is_submerged:
-            submerged_px = max(0.0, float(y_ground - waterline_y))
-            raw_depth_cm = submerged_px * px_to_cm_scale
-        else:
-            submerged_px = 0.0
-            raw_depth_cm = 0.0
-
-        # Khử nhiễu: Nếu độ ngập < 3cm coi như đường chỉ ướt hoặc sai số nhẹ
-        if raw_depth_cm < 3.0:
-            raw_depth_cm = 0.0
-            is_submerged = False
-
-        # Gate 3: Kiểm tra ngưỡng nổi bồng bềnh (Buoyancy Limit)
-        buoyancy_limit = self.BUOYANCY_LIMITS.get(mapped_cls, 50.0)
-        is_floating = (raw_depth_cm > buoyancy_limit)
-
-        # Lọc trung vị theo track nếu có ID
-        final_depth_cm = raw_depth_cm
-        if track_id is not None:
-            history = self.track_history.setdefault(track_id, [])
-            history.append(raw_depth_cm)
-            if len(history) > 10:
-                history.pop(0)
-            final_depth_cm = float(np.median(history))
-
-        # Điểm tiếp đất hiển thị: nếu không ngập thì đáy tiếp đất trùng đáy nhìn thấy y2
-        effective_y_ground = int(y_ground) if (final_depth_cm > 0 and is_submerged) else int(y2)
-
-        return {
-            'class': mapped_cls,
-            'orientation': orientation,
-            'bbox_visible': (int(x1), int(y1), int(x2), int(y2)),
-            'bbox_submerged': (int(x1), int(y2), int(x2), effective_y_ground),
-            'y_ground': int(y_ground),
-            'waterline_y': int(waterline_y),
-            'depth_cm': float(round(final_depth_cm, 1)),
-            'scale_cm_per_px': float(round(px_to_cm_scale, 3)),
-            'is_floating': is_floating,
-            'buoyancy_limit': buoyancy_limit,
-            'has_water_contact': has_water,
-            'is_submerged': is_submerged,
-            'shrinkage_ratio': float(round(shrinkage_ratio, 2)),
-            'is_distance_reliable': is_distance_reliable,
-            'camera_pitch_deg': float(round(pitch, 1))
-        }
-
-
 class AdaptiveHybridArbiter:
     """
     Bộ Điều Phối Trọng Tài Thích Ứng:
@@ -303,7 +56,6 @@ class AdaptiveHybridArbiter:
     ]
 
     def __init__(self, default_road_offset_delta_h: float = 0.0):
-        self.vehicle_estimator = VehicleAmodalDepthEstimator()
         self.delta_h = float(default_road_offset_delta_h)
         self.learned_offsets = []
         self.last_valid_vehicle_depth = None
@@ -550,48 +302,88 @@ def refine_flood_segmentation_mask(
     h: int,
     w: int,
     conf_thresh: float = 0.25,
-    prev_mask: Optional[np.ndarray] = None
+    prev_mask: Optional[np.ndarray] = None,
+    frame_bgr: Optional[np.ndarray] = None
 ) -> np.ndarray:
     """
-    Tinh chỉnh mặt nạ phân đoạn nước ngập độ chính xác cao:
-    1. Chuẩn hóa kích thước (w, h)
-    2. Cắt bỏ nhiễu vùng trời / mái hiên (12% đỉnh ảnh)
-    3. Đóng hình thái học (Morphological Closing) lấp lỗ thủng sóng nước & xóa đốm nhiễu < 200px
-    4. Làm mượt theo thời gian (Temporal EMA) chống nhấp nháy giữa các frame
+    Tinh chỉnh mặt nạ phân đoạn nước ngập bảo toàn mép nước vật lý:
+    1. Chuẩn hóa kích thước (w, h).
+    2. Cắt bỏ nhiễu vùng trời / mái hiên (10% đỉnh ảnh).
+    3. Loại bỏ đốm nhiễu nhỏ (< 150px) KHÔNG dùng MORPH_CLOSE lớn gây nở phình mép nước.
+    4. Gradient-Guided Waterline Snapping: Tự động khóa viền mask vào đường mép gradient vật lý (vỉa hè/mép nước).
+    5. Giữ biên dạng sắc nét (không làm nhòe Gaussian ra mặt đường khô).
+    6. Làm mượt theo thời gian (Temporal EMA).
     """
     if raw_mask.shape[:2] != (h, w):
         mask = cv2.resize(raw_mask, (w, h), interpolation=cv2.INTER_LINEAR)
     else:
         mask = raw_mask.copy()
 
-    # 1. Cắt bỏ vùng trời / mái nhà ở 12% phía trên cùng của khung hình
-    sky_cutoff = int(h * 0.12)
+    # 1. Cắt bỏ vùng trời / mái nhà ở 10% phía trên cùng của khung hình
+    sky_cutoff = int(h * 0.10)
     if sky_cutoff > 0:
         mask[:sky_cutoff, :] = 0.0
 
-    # 2. Lọc hình thái học & xóa đốm nhiễu nhỏ rời rạc
-    bin_mask = (mask >= conf_thresh).astype(np.uint8) * 255
-    if np.any(bin_mask > 0):
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        closed_bin = cv2.morphologyEx(bin_mask, cv2.MORPH_CLOSE, kernel)
+    # 2. Lọc Ngưỡng Trễ Kép (Dual-Threshold Hysteresis)
+    # T_high: Lõi nước sâu chắc chắn 100% (Core Water Seeds)
+    # T_low : Vùng mép nước tiềm năng (Candidate Water Margins)
+    t_base = float(conf_thresh)
+    t_high = max(t_base * 1.30, 0.35)
+    t_low = max(t_base * 0.70, 0.16)
 
-        # Chỉ giữ lại các vùng nước liên thông có diện tích >= 200 pixel
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(closed_bin, connectivity=8)
-        clean_bin = np.zeros_like(closed_bin, dtype=np.float32)
-        for lbl_idx in range(1, num_labels):
-            if stats[lbl_idx, cv2.CC_STAT_AREA] >= 200:
-                clean_bin[labels == lbl_idx] = 1.0
+    core_seeds = (mask >= t_high).astype(np.uint8)
+    candidates = (mask >= t_low).astype(np.uint8)
 
-        # Giữ độ mềm xác suất bên trong vùng hợp lệ và làm mịn biên bằng Gaussian nhẹ
-        refined = np.maximum(mask * clean_bin, clean_bin * float(conf_thresh + 0.05))
-        refined = cv2.GaussianBlur(refined, (5, 5), 0)
+    if not np.any(candidates > 0):
+        return np.zeros((h, w), dtype=np.float32)
+
+    # Nếu có lõi nước: Chỉ giữ lại các vùng candidates có kết nối trực tiếp với core_seeds
+    if np.any(core_seeds > 0):
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
+        core_labels = np.unique(labels[core_seeds > 0])
+        core_labels = core_labels[core_labels > 0]
+
+        clean_bin = np.zeros_like(candidates, dtype=np.uint8)
+        for lbl in core_labels:
+            if stats[lbl, cv2.CC_STAT_AREA] >= 150:
+                clean_bin[labels == lbl] = 1
     else:
-        refined = np.zeros((h, w), dtype=np.float32)
+        # Trường hợp nước rất nông: Lọc theo diện tích tối thiểu
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
+        clean_bin = np.zeros_like(candidates, dtype=np.uint8)
+        for lbl_idx in range(1, num_labels):
+            if stats[lbl_idx, cv2.CC_STAT_AREA] >= 300:
+                clean_bin[labels == lbl_idx] = 1
 
-    # 3. Làm mượt theo thời gian (Temporal EMA) nếu cùng độ phân giải
-    if prev_mask is not None and prev_mask.shape == refined.shape:
-        refined = 0.65 * refined + 0.35 * prev_mask
+    if not np.any(clean_bin > 0):
+        return np.zeros((h, w), dtype=np.float32)
 
+    # 4. Gradient-Guided Waterline Snapping (Khóa viền vào mép gradient vật lý của vỉa hè & mặt nước)
+    if frame_bgr is not None and frame_bgr.shape[:2] == (h, w):
+        try:
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            # Tính gradient Sobel độ nét cao
+            grad_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+            grad_mag = cv2.magnitude(grad_x, grad_y)
+            grad_norm = cv2.normalize(grad_mag, None, 0.0, 1.0, cv2.NORM_MINMAX)
+
+            # Xác định dải viền ranh giới (Narrow Boundary Band) trong bán kính 3 pixel
+            k3 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            dilated = cv2.dilate(clean_bin, k3)
+            eroded = cv2.erode(clean_bin, k3)
+            boundary_band = (dilated - eroded) > 0
+
+            # Tại dải ranh giới, nếu gradient độ tương phản mạnh (mép vỉa hè/đường),
+            # căn chỉnh xác suất theo gradient để mép nước không bị tràn lấn sang vùng khô sáng màu
+            strong_edge = (grad_norm > 0.18) & boundary_band
+            suppress_spill = strong_edge & (gray > 120) & (clean_bin == 1)
+            clean_bin[suppress_spill] = 0
+        except Exception:
+            pass
+
+    # 5. Tạo mask xác suất sắc nét bên trong vùng nước thực tế (phản hồi tức thời per-frame, zero-lag)
+    refined = np.where(clean_bin > 0, np.maximum(mask, t_low), 0.0).astype(np.float32)
     return np.clip(refined, 0.0, 1.0)
 
 
@@ -619,7 +411,7 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                 frame_bgr,
                 conf=float(flood_conf),
                 iou=0.55,
-                imgsz=640,
+                imgsz=800,
                 retina_masks=True,
                 device=INFER_DEVICE,
                 verbose=False
@@ -629,7 +421,7 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                 combined_gpu = torch.amax(f_res.masks.data, dim=0)
                 m_np = combined_gpu.cpu().numpy()
                 flood_mask = refine_flood_segmentation_mask(
-                    m_np, h, w, conf_thresh=float(flood_conf), prev_mask=prev_m
+                    m_np, h, w, conf_thresh=float(flood_conf), prev_mask=prev_m, frame_bgr=frame_bgr
                 )
             elif prev_m is not None and prev_m.shape == (h, w):
                 # Giảm dần mượt mà khi mất tín hiệu đột ngột 1 frame

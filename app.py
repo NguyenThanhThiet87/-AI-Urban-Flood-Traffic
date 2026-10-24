@@ -3,8 +3,7 @@
 """
 ================================================================================
 🌊 AI-POWERED URBAN WATER LEVEL & DEPTH MONITORING SYSTEM
-Hệ Thống Đo Độ Sâu Ngập Lụt Đô Thị Lai Thích Ứng (Adaptive Hybrid Dual-Strategy):
-  - Phương Tiện Giao Thông: Tái tạo Bounding Box chìm Amodal BBox (QCVN 14 & 09:2015/BGTVT)
+Hệ Thống Đo Độ Sâu Ngập Lụt Đô Thị Theo Thủy Chuẩn Mốc (Virtual Staff Gauge & SCSG-Net):
   - Mạng Lưới Đa Mốc Thủy Chuẩn Cố Định: Stepped Cascading Staff Gauge Network (SCSG-Net)
     (Tiêu chuẩn USGS TM 3-A7, ISO 4373:2022 & Cây quyết định 4 quy tắc chuyển giao cao trình)
   - Phân Đoạn Mặt Nước: YOLOv8s-seg huấn luyện trên 5,090 ảnh ngập lụt thực tế Việt Nam
@@ -73,7 +72,6 @@ from fixed_object_gauge import (
     GAUGE_COLOR_PALETTE
 )
 from adaptive_hybrid_depth_engine import (
-    VehicleAmodalDepthEstimator,
     AdaptiveHybridArbiter,
     render_hybrid_xray_hud,
     HybridDepthReport,
@@ -195,9 +193,12 @@ if DEFAULT_GAUGE_VIDEO:
     except Exception as e:
         print(f"⚠️ Không thể trích xuất khung hình khởi tạo: {e}")
 
+VIETNAM_FLOOD_YOLO11M_PATH = BASE_DIR / "models" / "vietnam_flood_yolo11m_seg.pt"
+VIETNAM_FLOOD_YOLO11_PATH = BASE_DIR / "models" / "vietnam_flood_yolo11s_seg.pt"
 VIETNAM_FLOOD_MODEL_PATH = BASE_DIR / "models" / "vietnam_flood_yolov8s_seg.pt"
 FLOOD_MODEL_NEW_PATH = BASE_DIR / "models" / "flood_model_best.pt"
 FLOOD_MODEL_OLD_PATH = BASE_DIR / "models" / "yolov8s_flood_best.pt"
+VEHICLE_YOLO11_PATH = BASE_DIR / "models" / "yolo11s_vehicle.pt"
 VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8s_vehicle.pt"
 COCO_VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
 
@@ -217,17 +218,19 @@ else:
         print(f"   [+] Thiết bị suy luận: {device}")
 
 # Tải các mô hình Phân đoạn ngập lụt & Theo dõi phương tiện (cho Tab Ùn tắc)
+flood_model_yolo11m = YOLO(str(VIETNAM_FLOOD_YOLO11M_PATH)) if VIETNAM_FLOOD_YOLO11M_PATH.exists() else None
+flood_model_yolo11 = YOLO(str(VIETNAM_FLOOD_YOLO11_PATH)) if VIETNAM_FLOOD_YOLO11_PATH.exists() else None
 flood_model_vietnam = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
 flood_model_new = YOLO(str(FLOOD_MODEL_NEW_PATH)) if FLOOD_MODEL_NEW_PATH.exists() else None
 flood_model_old = YOLO(str(FLOOD_MODEL_OLD_PATH)) if FLOOD_MODEL_OLD_PATH.exists() else None
 
-flood_model = flood_model_vietnam if flood_model_vietnam is not None else (flood_model_new if flood_model_new is not None else flood_model_old)
-vehicle_model = YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None)
+flood_model = flood_model_yolo11m if flood_model_yolo11m is not None else (flood_model_yolo11 if flood_model_yolo11 is not None else (flood_model_vietnam if flood_model_vietnam is not None else (flood_model_new if flood_model_new is not None else flood_model_old)))
+vehicle_model = YOLO(str(VEHICLE_YOLO11_PATH)) if VEHICLE_YOLO11_PATH.exists() else (YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None))
 
 # Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
 if torch.cuda.is_available() and not is_zero_gpu:
     try:
-        for m_obj in (flood_model_vietnam, flood_model_new, flood_model_old, vehicle_model):
+        for m_obj in (flood_model_yolo11m, flood_model_yolo11, flood_model_vietnam, flood_model_new, flood_model_old, vehicle_model):
             if m_obj is not None:
                 m_obj.to(device)
         dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
@@ -240,20 +243,26 @@ if torch.cuda.is_available() and not is_zero_gpu:
     except Exception as e:
         print(f"⚠️ Cảnh báo khởi tạo GPU Warmup: {e}")
 
-active_model_name = "vietnam_flood_yolov8s_seg.pt (5,090 ảnh VN)" if flood_model_vietnam is not None else ("flood_model_best.pt (Mới)" if flood_model_new is not None else "yolov8s_flood_best.pt (Cũ)")
-active_veh_name = "yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt"
+active_model_name = "vietnam_flood_yolo11m_seg.pt (YOLO11m 64-Proto V2)" if flood_model_yolo11m is not None else ("vietnam_flood_yolo11s_seg.pt (YOLO11s C2PSA - Clean 8K)" if flood_model_yolo11 is not None else ("vietnam_flood_yolov8s_seg.pt (5,090 ảnh VN)" if flood_model_vietnam is not None else ("flood_model_best.pt (Mới)" if flood_model_new is not None else "yolov8s_flood_best.pt (Cũ)")))
+active_veh_name = "yolo11s_vehicle.pt (YOLO11s SOTA 90.8% mAP50)" if VEHICLE_YOLO11_PATH.exists() else ("yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt")
 print(f"   [+] Đã nạp thành công mô hình Flood [{active_model_name}] & Vehicle Tracking [{active_veh_name}] (YOLO + ByteTrack)!")
 
 
-def get_selected_flood_model(model_name_choice="Mô hình Mới Train 5,090 ảnh VN (vietnam_flood_yolov8s_seg.pt)"):
+def get_selected_flood_model(model_name_choice="Mô hình YOLO11m-seg 64-Proto V2 (vietnam_flood_yolo11m_seg.pt)"):
     """Lấy mô hình phân đoạn nước theo lựa chọn người dùng."""
-    choice_str = str(model_name_choice)
-    if "5,090" in choice_str or "vietnam" in choice_str.lower():
+    choice_str = str(model_name_choice).lower()
+    if "11m" in choice_str or "medium" in choice_str:
+        if flood_model_yolo11m is not None:
+            return flood_model_yolo11m
+    if "11s" in choice_str or "yolo11" in choice_str or "11" in choice_str:
+        if flood_model_yolo11 is not None:
+            return flood_model_yolo11
+    if "5,090" in choice_str or "vietnam" in choice_str or "v8" in choice_str:
         if flood_model_vietnam is not None:
             return flood_model_vietnam
-    if "Cũ" in choice_str or "yolov8s_flood_best" in choice_str:
+    if "cũ" in choice_str or "yolov8s_flood_best" in choice_str:
         return flood_model_old if flood_model_old is not None else flood_model
-    return flood_model_new if flood_model_new is not None else flood_model
+    return flood_model if flood_model is not None else (flood_model_yolo11m if flood_model_yolo11m is not None else (flood_model_yolo11 if flood_model_yolo11 is not None else flood_model_vietnam))
 
 
 def get_gauge_dropdown_choices():
@@ -272,7 +281,12 @@ def on_avg_mode_change(mode_val):
     return f"<div style='color:#38bdf8;'>⚖️ Đã đổi chế độ tính trung bình đa mốc: <b>{desc}</b></div>"
 
 
-LIVE_STREAM_STATE = {"run_id": 0, "active": False}
+LIVE_STREAM_STATE = {
+    "run_id": 0,
+    "active": False,
+    "flood_conf": 0.25,
+    "veh_conf": 0.35,
+}
 
 
 def stop_live_stream():
@@ -291,7 +305,7 @@ def on_tab5_stop_button():
 # HÀM XỬ LÝ SỰ KIỆN TAB 5: HỆ THỐNG LAI THÍCH ỨNG (PHƯƠNG TIỆN + THỦY CHUẨN MỐC)
 # Sử dụng Mạng Lưới Đa Mốc Bậc Thang (Stepped Cascading Staff Gauge Network - SCSG-Net)
 # ==============================================================================
-def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Nạp video lên Tab 5: Ngắt luồng đang chạy (nếu có), reset mốc cũ, trích xuất Frame 0 và khởi tạo thanh tua."""
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
@@ -310,7 +324,7 @@ def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, cal
 
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
 
     prev = draw_multi_calibration_preview(
         frame0,
@@ -352,11 +366,11 @@ def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, cal
         interactive=True
     )
 
-    status_msg = f"<div style='color:#38bdf8;'>🎬 <b>Video đã sẵn sàng:</b> {total_frames} frames ({duration:.1f}s, {fps:.0f} FPS). 👉 Hãy nhấp chuột vào ảnh để chấm điểm đầu và điểm cuối!</div>"
+    status_msg = f"<div style='color:#38bdf8;'>🎬 <b>Video đã sẵn sàng:</b> {total_frames} frames ({duration:.1f}s, {fps:.0f} FPS). 👉 Hãy nhấp chuột vào ảnh để chấm 3 điểm (Đáy -> Giữa -> Đỉnh)!</div>"
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), slider_update, new_state, status_msg, gr.update(choices=[], value=None)
 
 
-def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Nạp ảnh từ Tab Ảnh sang màn hình bên phải để chấm mốc và dự đoán AI."""
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
@@ -367,7 +381,7 @@ def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, calib_
     frame_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
 
     prev = draw_multi_calibration_preview(
         frame_bgr,
@@ -401,7 +415,7 @@ def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, calib_
     }
 
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=False)
-    msg = "<div style='color:#38bdf8;'>🖼️ <b>Ảnh đã sẵn sàng!</b> Nhấp chuột lên ảnh bên phải để chấm mốc hoặc bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b>.</div>"
+    msg = "<div style='color:#38bdf8;'>🖼️ <b>Ảnh đã sẵn sàng!</b> Nhấp chuột lên ảnh bên phải để chấm 3 điểm mốc hoặc bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b>.</div>"
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), slider_update, new_state, msg, gr.update(choices=[], value=None)
 
 
@@ -423,7 +437,7 @@ def resolve_camera_stream_url(raw_url: str):
     return u
 
 
-def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Ngắt luồng đang chạy, xóa cột mốc của camera cũ và kết nối lại ngay với luồng Camera RTSP / Live Stream mới chọn."""
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
@@ -458,7 +472,7 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
 
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
 
     prev = draw_multi_calibration_preview(
         frame_bgr,
@@ -492,15 +506,15 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
     }
 
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=False)
-    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_title}!</b> (Đã làm mới cột mốc). Hãy chấm mốc trên khung hình rồi bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b>.</div>"
+    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_title}!</b> (Đã làm mới cột mốc). Hãy chấm 3 điểm mốc trên khung hình rồi bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b>.</div>"
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), slider_update, new_state, msg, gr.update(choices=[], value=None)
 
 
-def on_tab5_switch_to_image_tab(img_rgb, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_switch_to_image_tab(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Khi người dùng chuyển sang tab Ảnh: tự động ngắt ngay video / dự đoán AI đang chạy."""
     stop_live_stream()
     if img_rgb is not None:
-        return on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, calib_mode, strip_width)
+        return on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
     if state_data:
         state_data["source_type"] = "image"
@@ -514,15 +528,15 @@ def on_tab5_switch_to_image_tab(img_rgb, state_data, name, h_start_cm, h_end_cm,
     return gr.skip(), slider_update, state_data, msg, gr.skip()
 
 
-def on_tab5_switch_to_video_tab(video_file, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_switch_to_video_tab(video_file, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Khi người dùng chuyển sang tab Video: tự động ngắt ngay dự đoán AI / luồng đang chạy và khôi phục khung hình video tĩnh."""
     stop_live_stream()
     if video_file:
-        return on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, calib_mode, strip_width)
+        return on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
     video_path = (state_data.get("video_path") if state_data else None) or DEFAULT_GAUGE_VIDEO
     if video_path and Path(video_path).exists():
-        return on_tab5_video_loaded(video_path, state_data, name, h_start_cm, h_end_cm, calib_mode, strip_width)
+        return on_tab5_video_loaded(video_path, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
     if state_data:
         state_data["source_type"] = "video"
@@ -531,7 +545,7 @@ def on_tab5_switch_to_video_tab(video_file, state_data, name, h_start_cm, h_end_
     return gr.skip(), slider_update, state_data, msg, gr.skip()
 
 
-def on_tab5_switch_to_camera_tab(cam_url_str, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_switch_to_camera_tab(cam_url_str, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Khi người dùng chuyển sang tab Camera: tự động ngắt ngay video / dự đoán AI đang chạy."""
     stop_live_stream()
     if state_data:
@@ -546,9 +560,9 @@ def on_tab5_switch_to_camera_tab(cam_url_str, state_data, name, h_start_cm, h_en
     return gr.skip(), slider_update, state_data, msg, gr.skip()
 
 
-def on_tab5_seek_frame(frame_idx, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_seek_frame(frame_idx, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
     """Tua video đến khung hình frame_idx trên Tab 5, mốc thước đo vẫn đứng yên cố định."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
@@ -591,9 +605,9 @@ def on_tab5_seek_frame(frame_idx, state_data, name, h_start_cm, h_end_cm, calib_
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data
 
 
-def on_tab5_mode_change(calib_mode, state_data, name, h_start_cm, h_end_cm, strip_width=20):
-    """Xử lý khi người dùng đổi chế độ hiệu chuẩn mốc 2 điểm vs 3 điểm trên Tab 5."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+def on_tab5_mode_change(calib_mode, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
+    """Xử lý làm mới thiết lập mốc chuẩn theo Quy chuẩn 3 điểm."""
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
@@ -623,13 +637,13 @@ def on_tab5_mode_change(calib_mode, state_data, name, h_start_cm, h_end_cm, stri
         strip_width=strip_w
     )
 
-    msg = f"<div style='color:#38bdf8;'>Đã chuyển sang chế độ <b>{calib_mode}</b>. Hãy nhấp chuột vào ảnh để chấm điểm.</div>"
+    msg = "<div style='color:#38bdf8;'>📐 Đang ở <b>Quy chuẩn 3 Điểm Khử Phối Cảnh</b>. Hãy nhấp chuột vào ảnh để chấm điểm.</div>"
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
 
 
-def on_tab5_canvas_click(evt: gr.SelectData, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
-    """Xử lý nhấp chuột trực tiếp trên khung hình video: chỉ vẽ nháp điểm 1 & điểm 2, chờ bấm nút Lưu mới nạp vào hệ thống."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+def on_tab5_canvas_click(evt: gr.SelectData, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
+    """Xử lý nhấp chuột trực tiếp trên khung hình: chấm tuần tự 3 điểm (Đáy -> Giữa H/2 -> Đỉnh)."""
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
@@ -644,79 +658,51 @@ def on_tab5_canvas_click(evt: gr.SelectData, state_data, name, h_start_cm, h_end
     h_end = float(h_end_cm if h_end_cm is not None else 0.0)
     draft_name = str(name).strip() if (name and str(name).strip()) else ""
 
-    if mode_str == "3_points":
-        if step == 0 or step >= 3:
-            state_data["p_bot"] = (x, y)
-            state_data["p_mid"] = None
-            state_data["p_top"] = None
-            state_data["step"] = 1
-            prev = draw_multi_calibration_preview(
-                base_frame, global_multi_gauge_manager,
-                p_bottom=(x, y), p_top=None, p_mid=None,
-                name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
-                click_step=1, calib_mode=mode_str, strip_width=strip_w
-            )
-            msg = f"<div style='color:#38bdf8;'>📍 Đã chấm <b>Điểm đầu</b> tại ({x}, {y}). Tiếp theo hãy chấm <b>Điểm giữa</b> trên ảnh!</div>"
-            return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
-        elif step == 1:
-            p_bot = state_data["p_bot"]
-            p_mid = (x, y)
-            state_data["p_mid"] = p_mid
-            state_data["step"] = 2
-            prev = draw_multi_calibration_preview(
-                base_frame, global_multi_gauge_manager,
-                p_bottom=p_bot, p_top=None, p_mid=p_mid,
-                name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
-                click_step=2, calib_mode=mode_str, strip_width=strip_w
-            )
-            msg = f"<div style='color:#38bdf8;'>📍 Đã chấm <b>Điểm giữa</b> tại ({x}, {y}). Tiếp theo hãy chấm <b>Điểm cuối</b> trên ảnh!</div>"
-            return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
-        else:
-            p_bot = state_data["p_bot"]
-            p_mid = state_data["p_mid"]
-            p_top = (x, y)
-            state_data["p_top"] = p_top
-            state_data["step"] = 3
-            prev = draw_multi_calibration_preview(
-                base_frame, global_multi_gauge_manager,
-                p_bottom=p_bot, p_top=p_top, p_mid=p_mid,
-                name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
-                click_step=3, calib_mode=mode_str, strip_width=strip_w
-            )
-            msg = "<div style='color:#f59e0b;'>👉 Đã chấm đủ điểm! Hãy nhập <b>Tên cột mốc</b>, <b>Điểm đầu (cm)</b>, <b>Điểm cuối (cm)</b> bên dưới rồi bấm <b>Lưu</b>.</div>"
-            return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
+    if step == 0 or step >= 3:
+        state_data["p_bot"] = (x, y)
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["step"] = 1
+        prev = draw_multi_calibration_preview(
+            base_frame, global_multi_gauge_manager,
+            p_bottom=(x, y), p_top=None, p_mid=None,
+            name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
+            click_step=1, calib_mode=mode_str, strip_width=strip_w
+        )
+        msg = f"<div style='color:#38bdf8;'>📍 <b>[Bước 1/3]</b> Đã chấm <b>1. Điểm đầu (Đáy 0cm)</b> tại ({x}, {y}). 👉 Tiếp theo hãy chấm <b>2. Điểm giữa (Vạch H/2)</b> trên ảnh!</div>"
+        return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
+    elif step == 1:
+        p_bot = state_data["p_bot"]
+        p_mid = (x, y)
+        state_data["p_mid"] = p_mid
+        state_data["step"] = 2
+        prev = draw_multi_calibration_preview(
+            base_frame, global_multi_gauge_manager,
+            p_bottom=p_bot, p_top=None, p_mid=p_mid,
+            name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
+            click_step=2, calib_mode=mode_str, strip_width=strip_w
+        )
+        msg = f"<div style='color:#38bdf8;'>📍 <b>[Bước 2/3]</b> Đã chấm <b>2. Điểm giữa (H/2)</b> tại ({x}, {y}). 👉 Tiếp theo hãy chấm <b>3. Điểm cuối (Đỉnh)</b> trên ảnh!</div>"
+        return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
     else:
-        if step == 0 or step >= 2:
-            state_data["p_bot"] = (x, y)
-            state_data["p_mid"] = None
-            state_data["p_top"] = None
-            state_data["step"] = 1
-            prev = draw_multi_calibration_preview(
-                base_frame, global_multi_gauge_manager,
-                p_bottom=(x, y), p_top=None, p_mid=None,
-                name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
-                click_step=1, calib_mode=mode_str, strip_width=strip_w
-            )
-            msg = f"<div style='color:#38bdf8;'>📍 Đã chấm <b>Điểm đầu</b> tại ({x}, {y}). Tiếp theo hãy chấm <b>Điểm cuối</b> trên ảnh!</div>"
-            return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
-        else:
-            p_bot = state_data["p_bot"]
-            p_top = (x, y)
-            state_data["p_top"] = p_top
-            state_data["step"] = 2
-            prev = draw_multi_calibration_preview(
-                base_frame, global_multi_gauge_manager,
-                p_bottom=p_bot, p_top=p_top, p_mid=None,
-                name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
-                click_step=2, calib_mode=mode_str, strip_width=strip_w
-            )
-            msg = "<div style='color:#f59e0b;'>👉 Đã chấm Điểm đầu & Điểm cuối! Hãy nhập <b>Tên cột mốc</b>, <b>Điểm đầu (cm)</b>, <b>Điểm cuối (cm)</b> bên dưới rồi bấm <b>Lưu</b>.</div>"
-            return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
+        p_bot = state_data["p_bot"]
+        p_mid = state_data["p_mid"]
+        p_top = (x, y)
+        state_data["p_top"] = p_top
+        state_data["step"] = 3
+        prev = draw_multi_calibration_preview(
+            base_frame, global_multi_gauge_manager,
+            p_bottom=p_bot, p_top=p_top, p_mid=p_mid,
+            name=draft_name, h_start_cm=h_start, h_end_cm=h_end,
+            click_step=3, calib_mode=mode_str, strip_width=strip_w
+        )
+        msg = "<div style='color:#22c55e;'>✅ <b>[Bước 3/3]</b> Đã chấm đủ 3 điểm (Đáy, Giữa, Đỉnh)! Nhập <b>Tên cột mốc</b>, <b>Điểm đầu (cm)</b>, <b>Điểm cuối (cm)</b> bên dưới rồi bấm <b>'Lưu'</b>.</div>"
+        return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, msg
 
 
-def on_tab5_width_change(new_width, state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)"):
+def on_tab5_width_change(new_width, state_data, name, h_start_cm, h_end_cm, **kwargs):
     """Phản hồi tương tác kéo thả slider bề rộng thước đo (strip_width: 4px - 100px) trên Tab 5."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
     strip_w = int(new_width) if new_width is not None else 20
     strip_w = max(4, min(100, strip_w))
 
@@ -760,9 +746,9 @@ def on_tab5_width_change(new_width, state_data, name, h_start_cm, h_end_cm, cali
     return cv2.cvtColor(prev, cv2.COLOR_BGR2RGB), state_data, status_msg
 
 
-def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
-    """Lưu cột mốc vừa chấm vào mạng lưới khi bấm nút 'Lưu', sau đó reset các ô nhập và điểm nháp."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
+    """Lưu cột mốc vừa chấm vào mạng lưới khi bấm nút 'Lưu', kiểm tra bắt buộc đủ 3 điểm khử phối cảnh."""
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
@@ -774,11 +760,11 @@ def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, calib_mode="2 Đi
     p_mid = state_data.get("p_mid")
     p_top = state_data.get("p_top")
 
-    if not p_bot or not p_top:
+    if not p_bot or not p_mid or not p_top:
         return (
             gr.skip(),
             state_data,
-            "<div style='color:#ef4444;'>⚠️ Vui lòng chấm đủ <b>Điểm đầu</b> và <b>Điểm cuối</b> trên ảnh trước khi bấm <b>Lưu</b>!</div>",
+            "<div style='color:#ef4444;'>⚠️ Vui lòng chấm đủ 3 điểm (<b>1. Đáy</b>, <b>2. Giữa H/2</b>, <b>3. Đỉnh</b>) theo chuẩn khử phối cảnh trước khi bấm <b>Lưu</b>!</div>",
             gr.skip(), gr.skip(), gr.skip(), gr.skip()
         )
 
@@ -812,13 +798,14 @@ def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, calib_mode="2 Đi
     target_g.configure(
         p_bottom=p_bot,
         p_top=p_top,
-        p_mid=p_mid if mode_str == "3_points" else None,
+        p_mid=p_mid,
         name=clean_name,
         warning_cm=25.0,
         base_frame=base_frame,
         strip_width=strip_w,
         h_start_cm=h_start,
-        h_end_cm=h_end
+        h_end_cm=h_end,
+        calib_mode=mode_str
     )
 
     # Reset trạng thái nháp để sẵn sàng chấm cột mốc tiếp theo
@@ -853,9 +840,9 @@ def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, calib_mode="2 Đi
     )
 
 
-def reset_tab5_gauge_points(state_data, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def reset_tab5_gauge_points(state_data, strip_width=20, **kwargs):
     """Hủy các điểm đang chấm dở trên màn hình và đặt lại các ô nhập về mặc định."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else 20
 
     if state_data:
@@ -888,11 +875,11 @@ def reset_tab5_gauge_points(state_data, calib_mode="2 Điểm (Đáy -> Đỉnh)
     )
 
 
-def on_tab5_reset_all_gauges(state_data, calib_mode="2 Điểm (Đáy -> Đỉnh)", strip_width=20):
+def on_tab5_reset_all_gauges(state_data, strip_width=20, **kwargs):
     """Xóa sạch toàn bộ các cột mốc đã thiết lập và hủy điểm đang chấm dở."""
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
     strip_w = int(strip_width) if strip_width is not None else 20
 
     if state_data:
@@ -927,9 +914,9 @@ def on_tab5_reset_all_gauges(state_data, calib_mode="2 Điểm (Đáy -> Đỉnh
     )
 
 
-def on_tab5_remove_active_gauge(active_gid, state_data, calib_mode="2 Điểm (Đáy -> Đỉnh)"):
+def on_tab5_remove_active_gauge(active_gid, state_data, **kwargs):
     """Xóa mốc đã lưu khỏi mạng lưới từ Tab 5."""
-    mode_str = "3_points" if "3" in str(calib_mode) else "2_points"
+    mode_str = "3_points"
     if active_gid and active_gid in global_multi_gauge_manager.gauges:
         if len(global_multi_gauge_manager.gauges) > 1:
             global_multi_gauge_manager.remove_gauge(active_gid)
@@ -969,12 +956,46 @@ def on_tab5_remove_active_gauge(active_gid, state_data, calib_mode="2 Điểm (�
     )
 
 
+def on_tab5_flood_conf_changed(new_conf, state_data):
+    """Xử lý khi người dùng kéo thanh trượt ngưỡng phát hiện nước (tab5_flood_conf)."""
+    val = float(new_conf) if new_conf is not None else 0.25
+    LIVE_STREAM_STATE["flood_conf"] = val
+
+    # Nếu đang phát trực tiếp video hoặc camera: luồng live sẽ tự động dùng ngưỡng mới ở frame kế tiếp
+    if LIVE_STREAM_STATE.get("active", False):
+        status = f"<div style='color:#38bdf8;'>🎯 <b>Đã cập nhật ngưỡng nước: {val:.2f}</b> (áp dụng ngay vào luồng phát trực tiếp)</div>"
+        return gr.skip(), gr.skip(), gr.skip(), status
+
+    # Nếu đang xem ảnh tĩnh hoặc video đã dừng/tua:
+    base_frame = state_data.get("base_frame") if state_data else None
+    if base_frame is None:
+        status = f"<div style='color:#38bdf8;'>🎯 <b>Đã thiết lập ngưỡng nước: {val:.2f}</b></div>"
+        return gr.skip(), gr.skip(), gr.skip(), status
+
+    active_flood = get_selected_flood_model()
+    try:
+        hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
+            base_frame, global_multi_gauge_manager, global_tab5_arbiter,
+            active_flood, None,
+            flood_conf=val, mode="Cột mốc"
+        )
+        h_f, w_f = hud_rgb.shape[:2]
+        if w_f > 960:
+            scale_ratio = 960.0 / w_f
+            hud_rgb = cv2.resize(hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
+        status_info = f"<div style='color:#22c55e;'>🎯 <b>Đã cập nhật ngưỡng nước: {val:.2f}</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
+        return hud_rgb, df, alarm_html, status_info
+    except Exception as e:
+        return gr.skip(), gr.skip(), gr.skip(), f"<div style='color:red;'>⚠️ Lỗi cập nhật ngưỡng: {e}</div>"
+
+
 @spaces.GPU(duration=120)
 def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     """Chạy suy luận trực tiếp trên Ảnh, Video hoặc Camera theo Thủy chuẩn Cột mốc."""
     LIVE_STREAM_STATE["run_id"] += 1
     my_run_id = LIVE_STREAM_STATE["run_id"]
     LIVE_STREAM_STATE["active"] = True
+    LIVE_STREAM_STATE["flood_conf"] = float(flood_conf) if flood_conf is not None else 0.25
 
     active_flood = get_selected_flood_model()
     source_type = state_data.get("source_type", "video") if state_data else "video"
@@ -993,10 +1014,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             "<div style='background:#1e293b; color:#38bdf8; padding:10px; border-radius:8px;'>🚀 <b>Đang phân tích ảnh bằng AI...</b></div>",
             "<div style='color:#38bdf8;'>🚀 <b>Đang phân tích ảnh...</b></div>"
         )
+        cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
         hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
             base_frame, global_multi_gauge_manager, global_tab5_arbiter,
             active_flood, None,
-            flood_conf=flood_conf, mode="Cột mốc"
+            flood_conf=cur_conf, mode="Cột mốc"
         )
         LIVE_STREAM_STATE["active"] = False
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
@@ -1017,10 +1039,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             grabber.release()
             base_frame = state_data.get("base_frame") if state_data else None
             if base_frame is not None and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
                 hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
                     base_frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
-                    flood_conf=flood_conf, mode="Cột mốc"
+                    flood_conf=cur_conf, mode="Cột mốc"
                 )
                 LIVE_STREAM_STATE["active"] = False
                 yield hud_rgb, df, alarm_html, f"<div style='color:#22c55e;'>✅ Đã phân tích khung hình Camera | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
@@ -1042,10 +1065,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                     break
                 render_cnt += 1
                 try:
+                    cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
                     hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
                         frame, global_multi_gauge_manager, global_tab5_arbiter,
                         active_flood, None,
-                        flood_conf=flood_conf, mode="Cột mốc"
+                        flood_conf=cur_conf, mode="Cột mốc"
                     )
                     if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                         break
@@ -1120,10 +1144,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
 
             render_cnt += 1
             try:
+                cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
                 hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
                     frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
-                    flood_conf=flood_conf, mode="Cột mốc"
+                    flood_conf=cur_conf, mode="Cột mốc"
                 )
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
@@ -1417,12 +1442,40 @@ def on_traffic_clear_roi(state_data):
 
 
 
+def on_traffic_veh_conf_changed(new_conf, state_data):
+    """Xử lý khi người dùng kéo thanh trượt ngưỡng phương tiện (traffic_veh_conf)."""
+    val = float(new_conf) if new_conf is not None else 0.35
+    LIVE_STREAM_STATE["veh_conf"] = val
+
+    # Nếu đang phát trực tiếp video hoặc camera: luồng live sẽ tự động dùng ngưỡng mới ở frame kế tiếp
+    if LIVE_STREAM_STATE.get("active", False):
+        status = f"<div style='color:#38bdf8;'>🎯 <b>Đã cập nhật ngưỡng phương tiện: {val:.2f}</b> (áp dụng ngay vào luồng phát trực tiếp)</div>"
+        return gr.skip(), gr.skip(), gr.skip(), status
+
+    # Nếu đang xem ảnh tĩnh hoặc video đã dừng/tua:
+    base_frame = state_data.get("base_frame") if state_data else None
+    if base_frame is None:
+        status = f"<div style='color:#38bdf8;'>🎯 <b>Đã thiết lập ngưỡng phương tiện: {val:.2f}</b></div>"
+        return gr.skip(), gr.skip(), gr.skip(), status
+
+    loc_name = state_data.get("cam_title", "Camera Giao Thông") if state_data else "Camera Giao Thông"
+    try:
+        hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
+            base_frame, vehicle_model, veh_conf=val, fps=1.0, is_single_image=True, location_name=loc_name
+        )
+        status_info = f"<div style='color:#22c55e;'>🎯 <b>Đã cập nhật ngưỡng phương tiện: {val:.2f}</b> | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count} xe</b></div>"
+        return hud_rgb, df, alarm_html, status_info
+    except Exception as e:
+        return gr.skip(), gr.skip(), gr.skip(), f"<div style='color:red;'>⚠️ Lỗi cập nhật ngưỡng: {e}</div>"
+
+
 @spaces.GPU(duration=120)
 def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
     """Chạy suy luận trực tiếp đánh giá độ ùn tắc giao thông (YOLO + ByteTrack) trên Ảnh, Video hoặc Camera."""
     LIVE_STREAM_STATE["run_id"] += 1
     my_run_id = LIVE_STREAM_STATE["run_id"]
     LIVE_STREAM_STATE["active"] = True
+    LIVE_STREAM_STATE["veh_conf"] = float(veh_conf) if veh_conf is not None else 0.35
     global_traffic_analyzer.reset()
 
     source_type = state_data.get("source_type", "video") if state_data else "video"
@@ -1442,8 +1495,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             "<div style='background:#1e293b; color:#38bdf8; padding:10px; border-radius:8px;'>🚀 <b>Đang phân tích mật độ giao thông bằng AI...</b></div>",
             "<div style='color:#38bdf8;'>🚀 <b>Đang phân tích ảnh...</b></div>"
         )
+        cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
         hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
-            base_frame, vehicle_model, veh_conf=veh_conf, fps=1.0, is_single_image=True, location_name=loc_name
+            base_frame, vehicle_model, veh_conf=cur_conf, fps=1.0, is_single_image=True, location_name=loc_name
         )
         LIVE_STREAM_STATE["active"] = False
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count} xe</b></div>"
@@ -1464,8 +1518,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             grabber.release()
             base_frame = state_data.get("base_frame") if state_data else None
             if base_frame is not None and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
                 hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
-                    base_frame, vehicle_model, veh_conf=veh_conf, fps=25.0, is_single_image=True, location_name=loc_name
+                    base_frame, vehicle_model, veh_conf=cur_conf, fps=25.0, is_single_image=True, location_name=loc_name
                 )
                 LIVE_STREAM_STATE["active"] = False
                 yield hud_rgb, df, alarm_html, f"<div style='color:#22c55e;'>✅ Đã phân tích khung hình Camera | Trạng thái: <b>{report.status_label}</b></div>"
@@ -1487,8 +1542,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                     break
                 render_cnt += 1
                 try:
+                    cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
                     hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
-                        frame, vehicle_model, veh_conf=veh_conf, fps=grabber.fps,
+                        frame, vehicle_model, veh_conf=cur_conf, fps=grabber.fps,
                         is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
                     )
                     if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
@@ -1563,8 +1619,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             render_cnt += 1
             video_sim_time_s = float(cur_idx) / float(fps_vid)
             try:
+                cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
                 hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
-                    frame, vehicle_model, veh_conf=veh_conf, fps=fps_vid,
+                    frame, vehicle_model, veh_conf=cur_conf, fps=fps_vid,
                     is_single_image=False, location_name=Path(video_path).name,
                     sim_time_s=video_sim_time_s
                 )
@@ -1680,15 +1737,11 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             btn_tab5_delete_gauge = gr.Button("🗑️ Xóa cột mốc", variant="stop", scale=1)
 
                         with gr.Row():
-                            tab5_calib_mode = gr.Radio(
-                                choices=["2 Điểm (Đáy -> Đỉnh)", "3 Điểm (Đáy -> Giữa H/2 -> Đỉnh)"],
-                                value="2 Điểm (Đáy -> Đỉnh)",
-                                label="📐 Chế độ chấm điểm"
-                            )
-                            tab5_avg_mode = gr.Radio(
-                                choices=["Gia quyền phối cảnh (Khuyến nghị IEEE)", "Trung bình cộng chia đều"],
-                                value="Gia quyền phối cảnh (Khuyến nghị IEEE)" if global_multi_gauge_manager.fusion_average_mode == "weighted" else "Trung bình cộng chia đều",
-                                label="⚖️ Chế độ tính trung bình đa mốc"
+                            gr.Markdown(
+                                "<div style='padding: 10px 14px; background: rgba(56, 189, 248, 0.08); border-left: 4px solid #38bdf8; border-radius: 6px; font-size: 13px; line-height: 1.6;'>"
+                                "📐 <b>Quy Chuẩn Hiệu Chuẩn:</b> <b>3 Điểm Khử Phối Cảnh Quang Học</b> (1. Đáy $0\\text{ cm} \\rightarrow$ 2. Giữa $H/2 \\rightarrow$ 3. Đỉnh $H\\text{ cm}$ theo tỉ số kép 1D Hartley & Zisserman).<br>"
+                                "⚖️ <b>Quy Chuẩn Hợp Nhất Đa Mốc:</b> <b>Gia Quyền Phối Cảnh Tối Ưu (IEEE BLUE Fusion)</b> (Trọng số $w_k = \\text{Conf}_k \\cdot \\sqrt{\\rho_k}$ theo Hall & Llinas, IEEE 1997)."
+                                "</div>"
                             )
 
                         tab5_flood_conf = gr.Slider(0.10, 0.90, value=0.25, step=0.05, label="🎯 Ngưỡng Nước (Flood Conf)")
@@ -1728,7 +1781,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         "p_bot": None,
                         "p_mid": None,
                         "p_top": None,
-                        "calib_mode": "2_points"
+                        "calib_mode": "3_points"
                     })
                     tab5_seek_slider = gr.Slider(
                         minimum=0,
@@ -1899,19 +1952,19 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         # Sự kiện chuyển 3 tab con Ảnh / Video / Camera ở Tab 1 (Ngập lụt)
         tab_input_image.select(
             fn=on_tab5_switch_to_image_tab,
-            inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         tab_input_video.select(
             fn=on_tab5_switch_to_video_tab,
-            inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         tab_input_camera.select(
             fn=on_tab5_switch_to_camera_tab,
-            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
@@ -1919,81 +1972,72 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         # Xóa mốc đã lưu tại Tab 1
         btn_tab5_delete_gauge.click(
             fn=on_tab5_remove_active_gauge,
-            inputs=[tab5_active_dropdown, tab5_click_state, tab5_calib_mode],
+            inputs=[tab5_active_dropdown, tab5_click_state],
             outputs=[tab5_active_dropdown, tab5_calib_canvas, tab5_click_state, tab5_setup_status]
-        )
-
-        # Đổi chế độ tính trung bình đa mốc (Quy tắc 4) tại Tab 1
-        tab5_avg_mode.change(
-            fn=on_avg_mode_change,
-            inputs=[tab5_avg_mode],
-            outputs=[tab5_setup_status]
         )
 
         # Kéo thả đổi bề rộng thước đo (Reactive Width Slider)
         tab5_strip_width_slider.change(
             fn=on_tab5_width_change,
-            inputs=[tab5_strip_width_slider, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode],
-            outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status]
-        )
-
-        # Đổi chế độ hiệu chuẩn mốc (2 điểm vs 3 điểm)
-        tab5_calib_mode.change(
-            fn=on_tab5_mode_change,
-            inputs=[tab5_calib_mode, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
+            inputs=[tab5_strip_width_slider, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input],
             outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status]
         )
 
         # Khi tải Ảnh / chọn Camera / kết nối Camera / tải Video / tua Video ở Tab 1
         tab5_upload_image.change(
             fn=on_tab5_image_loaded,
-            inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         tab5_cam_preset.change(
             fn=on_tab5_camera_connect,
-            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         btn_tab5_connect_cam.click(
             fn=on_tab5_camera_connect,
-            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         tab5_upload_video.change(
             fn=on_tab5_video_loaded,
-            inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
             cancels=all_live_events
         )
         tab5_seek_slider.release(
             fn=on_tab5_seek_frame,
-            inputs=[tab5_seek_slider, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_seek_slider, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_click_state],
             cancels=all_live_events
         )
         tab5_calib_canvas.select(
             fn=on_tab5_canvas_click,
-            inputs=[tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status]
         )
         btn_save_tab5_gauge.click(
             fn=on_tab5_save_gauge,
-            inputs=[tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_active_dropdown]
         )
         btn_reset_tab5_gauge.click(
             fn=reset_tab5_gauge_points,
-            inputs=[tab5_click_state, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_click_state, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status, tab5_name_input, tab5_h_start_input, tab5_h_end_input]
         )
         btn_reset_all_tab5_gauges.click(
             fn=on_tab5_reset_all_gauges,
-            inputs=[tab5_click_state, tab5_calib_mode, tab5_strip_width_slider],
+            inputs=[tab5_click_state, tab5_strip_width_slider],
             outputs=[tab5_calib_canvas, tab5_click_state, tab5_setup_status, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_active_dropdown]
+        )
+        tab5_flood_conf.release(
+            fn=on_tab5_flood_conf_changed,
+            inputs=[tab5_flood_conf, tab5_click_state],
+            outputs=[tab5_calib_canvas, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
         )
 
         # ==================== SỰ KIỆN TAB 2 (ĐO ĐỘ ÙN TẮC GIAO THÔNG) ====================
@@ -2060,7 +2104,12 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
             inputs=[traffic_state],
             outputs=[traffic_canvas, traffic_state, traffic_setup_status]
         )
+        traffic_veh_conf.release(
+            fn=on_traffic_veh_conf_changed,
+            inputs=[traffic_veh_conf, traffic_state],
+            outputs=[traffic_canvas, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
+        )
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False, show_error=True)
+    demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True)
