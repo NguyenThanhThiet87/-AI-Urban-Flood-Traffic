@@ -193,8 +193,7 @@ if DEFAULT_GAUGE_VIDEO:
     except Exception as e:
         print(f"⚠️ Không thể trích xuất khung hình khởi tạo: {e}")
 
-VIETNAM_FLOOD_MODEL_PATH = BASE_DIR / "models" / "vietnam_flood_yolo11s_seg.pt"
-VEHICLE_YOLO11_PATH = BASE_DIR / "models" / "yolo11s_vehicle.pt"
+VIETNAM_FLOOD_MODEL_PATH = BASE_DIR / "models" / "vietnam_flood_yolov8s_seg.pt"
 VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8s_vehicle.pt"
 COCO_VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
 
@@ -213,9 +212,9 @@ else:
     else:
         print(f"   [+] Thiết bị suy luận: {device}")
 
-# Tải mô hình Phân đoạn ngập lụt (YOLO11s C2PSA) & Theo dõi phương tiện (YOLO11s)
+# Tải mô hình Phân đoạn ngập lụt (YOLOv8s chuẩn) & Theo dõi phương tiện (YOLOv8s)
 flood_model = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
-vehicle_model = YOLO(str(VEHICLE_YOLO11_PATH)) if VEHICLE_YOLO11_PATH.exists() else (YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None))
+vehicle_model = YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None)
 
 # Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
 if torch.cuda.is_available() and not is_zero_gpu:
@@ -233,8 +232,8 @@ if torch.cuda.is_available() and not is_zero_gpu:
     except Exception as e:
         print(f"⚠️ Cảnh báo khởi tạo GPU Warmup: {e}")
 
-active_model_name = "vietnam_flood_yolo11s_seg.pt (YOLO11s C2PSA - Clean 8K 800px)" if flood_model is not None else "N/A"
-active_veh_name = "yolo11s_vehicle.pt (YOLO11s SOTA 90.8% mAP50)" if VEHICLE_YOLO11_PATH.exists() else ("yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt")
+active_model_name = "vietnam_flood_yolov8s_seg.pt (YOLOv8s-seg 5,090 ảnh VN)" if flood_model is not None else "N/A"
+active_veh_name = "yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt"
 print(f"   [+] Đã nạp thành công mô hình Flood [{active_model_name}] & Vehicle Tracking [{active_veh_name}] (YOLO + ByteTrack)!")
 
 

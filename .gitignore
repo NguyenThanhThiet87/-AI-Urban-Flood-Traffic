@@ -1,4 +1,5 @@
-# Large Model Weights (> 100MB or local weights)
+# Large Model Weights (Keep locally, avoid exceeding GitHub LFS quota)
+models/vietnam_flood_yolov8s_seg.pt
 models/vietnam_flood_yolo11s_seg.pt
 models/yolo11s_vehicle.pt
 
