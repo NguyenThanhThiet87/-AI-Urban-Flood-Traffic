@@ -495,18 +495,29 @@ class TrafficCongestionAnalyzer:
             pts_px = [(int(round(rx * w)), int(round(ry * h))) for rx, ry in self.roi_points_norm]
             roi_poly_px = np.array(pts_px, dtype=np.int32).reshape((-1, 1, 2))
 
-        # 2. Phát hiện và theo dõi phương tiện bằng YOLO11s + ByteTrack (imgsz=640, CLAHE + Bộ lọc Đa lớp Giao thông VN)
+        # 2. Phát hiện và theo dõi phương tiện bằng YOLO11s + ByteTrack (imgsz=800, CLAHE + Bộ lọc Đa lớp Giao thông VN)
         if vehicle_model is not None:
             try:
                 det_frame = self._enhance_frame_for_detection(work_frame)
-                base_conf = max(0.14, float(veh_conf) * 0.70)
+                base_conf = max(0.12, float(veh_conf) * 0.65)
+
+                # Tự động trích xuất danh sách class phù hợp với mô hình (custom 4 classes hoặc COCO 80 classes)
+                target_classes = None
+                if hasattr(vehicle_model, "names") and isinstance(vehicle_model.names, dict):
+                    model_names = vehicle_model.names
+                    if len(model_names) <= 5 and any(n in ("bus", "car", "motorbike", "truck") for n in model_names.values()):
+                        target_classes = list(model_names.keys())
+                    else:
+                        valid_veh_names = {"car", "motorcycle", "motorbike", "bus", "truck", "bicycle"}
+                        target_classes = [c_id for c_id, c_name in model_names.items() if str(c_name).lower() in valid_veh_names]
+
                 if is_single_image:
                     results = vehicle_model.predict(
                         det_frame,
                         conf=base_conf,
-                        iou=0.55,
-                        classes=[1, 2, 3, 5, 7],
-                        imgsz=640,
+                        iou=0.45,
+                        classes=target_classes,
+                        imgsz=800,
                         device=INFER_DEVICE,
                         verbose=False
                     )[0]
@@ -514,11 +525,11 @@ class TrafficCongestionAnalyzer:
                     results = vehicle_model.track(
                         det_frame,
                         conf=base_conf,
-                        iou=0.55,
-                        classes=[1, 2, 3, 5, 7],
+                        iou=0.45,
+                        classes=target_classes,
                         tracker="bytetrack.yaml",
                         persist=True,
-                        imgsz=640,
+                        imgsz=800,
                         device=INFER_DEVICE,
                         verbose=False
                     )[0]

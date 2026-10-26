@@ -1106,7 +1106,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 2
+    step = 2  # Phân đoạn ngập lụt biến thiên chậm, lấy bước nhảy 2 để tối ưu hóa hiệu năng
     render_cnt = 0
 
     try:
@@ -1423,7 +1423,7 @@ def on_traffic_clear_roi(state_data):
 
 def on_traffic_veh_conf_changed(new_conf, state_data):
     """Xử lý khi người dùng kéo thanh trượt ngưỡng phương tiện (traffic_veh_conf)."""
-    val = float(new_conf) if new_conf is not None else 0.35
+    val = float(new_conf) if new_conf is not None else 0.25
     LIVE_STREAM_STATE["veh_conf"] = val
 
     # Nếu đang phát trực tiếp video hoặc camera: luồng live sẽ tự động dùng ngưỡng mới ở frame kế tiếp
@@ -1454,7 +1454,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
     LIVE_STREAM_STATE["run_id"] += 1
     my_run_id = LIVE_STREAM_STATE["run_id"]
     LIVE_STREAM_STATE["active"] = True
-    LIVE_STREAM_STATE["veh_conf"] = float(veh_conf) if veh_conf is not None else 0.35
+    LIVE_STREAM_STATE["veh_conf"] = float(veh_conf) if veh_conf is not None else 0.25
     global_traffic_analyzer.reset()
 
     source_type = state_data.get("source_type", "video") if state_data else "video"
@@ -1580,7 +1580,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 2
+    step = 1  # Bắt trọn vẹn 100% khung hình video, đảm bảo liên tục quỹ đạo cho phương tiện tốc độ cao
     render_cnt = 0
 
     try:
@@ -1831,7 +1831,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
                     with gr.Accordion("⚙️ Cài Đặt Nâng Cao", open=False):
                         traffic_veh_conf = gr.Slider(
-                            0.10, 0.90, value=0.30, step=0.05,
+                            0.10, 0.90, value=0.25, step=0.05,
                             label="🚗 Ngưỡng Phát Hiện Phương Tiện (Vehicle Conf)"
                         )
 
