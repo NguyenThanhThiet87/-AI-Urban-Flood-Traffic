@@ -1,9 +1,4 @@
 # Large Model Weights (> 100MB or local weights)
-models/aunet_flood_sota.pth
-models/vietnam_flood_yolo11m_seg.pt
-models/vietnam_flood_yolo11m_seg.onnx
-models/vietnam_flood_yolo11s_seg.pt
-models/vietnam_flood_yolo11s_seg.onnx
 models/yolo11s_vehicle.pt
 
 # Byte-compiled / optimized / DLL files

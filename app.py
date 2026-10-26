@@ -22,7 +22,6 @@ import torch
 from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
-from aunet_segmenter import AUNetFloodSegmenter
 
 # Vá lỗi tương thích giữa Gradio 4.44 và Starlette 0.38+ / 1.0+ (TypeError: unhashable type: 'dict')
 try:
@@ -194,12 +193,7 @@ if DEFAULT_GAUGE_VIDEO:
     except Exception as e:
         print(f"⚠️ Không thể trích xuất khung hình khởi tạo: {e}")
 
-AUNET_FLOOD_MODEL_PATH = BASE_DIR / "models" / "aunet_flood_sota.pth"
-VIETNAM_FLOOD_YOLO11M_PATH = BASE_DIR / "models" / "vietnam_flood_yolo11m_seg.pt"
-VIETNAM_FLOOD_YOLO11_PATH = BASE_DIR / "models" / "vietnam_flood_yolo11s_seg.pt"
 VIETNAM_FLOOD_MODEL_PATH = BASE_DIR / "models" / "vietnam_flood_yolov8s_seg.pt"
-FLOOD_MODEL_NEW_PATH = BASE_DIR / "models" / "flood_model_best.pt"
-FLOOD_MODEL_OLD_PATH = BASE_DIR / "models" / "yolov8s_flood_best.pt"
 VEHICLE_YOLO11_PATH = BASE_DIR / "models" / "yolo11s_vehicle.pt"
 VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8s_vehicle.pt"
 COCO_VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
@@ -219,21 +213,14 @@ else:
     else:
         print(f"   [+] Thiết bị suy luận: {device}")
 
-# Tải các mô hình Phân đoạn ngập lụt & Theo dõi phương tiện (cho Tab Ùn tắc)
-flood_model_aunet = AUNetFloodSegmenter(str(AUNET_FLOOD_MODEL_PATH), device=device) if AUNET_FLOOD_MODEL_PATH.exists() else None
-flood_model_yolo11m = YOLO(str(VIETNAM_FLOOD_YOLO11M_PATH)) if VIETNAM_FLOOD_YOLO11M_PATH.exists() else None
-flood_model_yolo11 = YOLO(str(VIETNAM_FLOOD_YOLO11_PATH)) if VIETNAM_FLOOD_YOLO11_PATH.exists() else None
-flood_model_vietnam = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
-flood_model_new = YOLO(str(FLOOD_MODEL_NEW_PATH)) if FLOOD_MODEL_NEW_PATH.exists() else None
-flood_model_old = YOLO(str(FLOOD_MODEL_OLD_PATH)) if FLOOD_MODEL_OLD_PATH.exists() else None
-
-flood_model = flood_model_aunet if flood_model_aunet is not None else (flood_model_yolo11m if flood_model_yolo11m is not None else (flood_model_yolo11 if flood_model_yolo11 is not None else (flood_model_vietnam if flood_model_vietnam is not None else (flood_model_new if flood_model_new is not None else flood_model_old))))
+# Tải mô hình Phân đoạn ngập lụt (YOLOv8s chuẩn) & Theo dõi phương tiện
+flood_model = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
 vehicle_model = YOLO(str(VEHICLE_YOLO11_PATH)) if VEHICLE_YOLO11_PATH.exists() else (YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None))
 
 # Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
 if torch.cuda.is_available() and not is_zero_gpu:
     try:
-        for m_obj in (flood_model_aunet, flood_model_yolo11m, flood_model_yolo11, flood_model_vietnam, flood_model_new, flood_model_old, vehicle_model):
+        for m_obj in (flood_model, vehicle_model):
             if m_obj is not None:
                 m_obj.to(device)
         dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
@@ -246,33 +233,14 @@ if torch.cuda.is_available() and not is_zero_gpu:
     except Exception as e:
         print(f"⚠️ Cảnh báo khởi tạo GPU Warmup: {e}")
 
-active_model_name = "aunet_flood_sota.pth (AUNet DisLA+Swin SOTA 86.5% IoU)" if flood_model_aunet is not None else ("vietnam_flood_yolo11m_seg.pt (YOLO11m 64-Proto V2)" if flood_model_yolo11m is not None else ("vietnam_flood_yolo11s_seg.pt (YOLO11s C2PSA - Clean 8K)" if flood_model_yolo11 is not None else ("vietnam_flood_yolov8s_seg.pt (5,090 ảnh VN)" if flood_model_vietnam is not None else ("flood_model_best.pt (Mới)" if flood_model_new is not None else "yolov8s_flood_best.pt (Cũ)"))))
+active_model_name = "vietnam_flood_yolov8s_seg.pt (YOLOv8s-seg 5,090 ảnh VN)" if flood_model is not None else "N/A"
 active_veh_name = "yolo11s_vehicle.pt (YOLO11s SOTA 90.8% mAP50)" if VEHICLE_YOLO11_PATH.exists() else ("yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt")
 print(f"   [+] Đã nạp thành công mô hình Flood [{active_model_name}] & Vehicle Tracking [{active_veh_name}] (YOLO + ByteTrack)!")
 
-CURRENT_SELECTED_FLOOD_CHOICE = "🌊 AUNet SOTA (DisLA + Swin Attention 86.5% IoU)" if flood_model_aunet is not None else "🚀 YOLO11m-seg (vietnam_flood_yolo11m_seg.pt)"
 
-
-def get_selected_flood_model(model_name_choice=None):
-    """Lấy mô hình phân đoạn nước theo lựa chọn người dùng."""
-    global CURRENT_SELECTED_FLOOD_CHOICE
-    choice = model_name_choice if model_name_choice is not None else CURRENT_SELECTED_FLOOD_CHOICE
-    choice_str = str(choice).lower()
-    if "aunet" in choice_str or "disla" in choice_str or "swin" in choice_str:
-        if flood_model_aunet is not None:
-            return flood_model_aunet
-    if "11m" in choice_str or "medium" in choice_str:
-        if flood_model_yolo11m is not None:
-            return flood_model_yolo11m
-    if "11s" in choice_str or "yolo11" in choice_str or "11" in choice_str:
-        if flood_model_yolo11 is not None:
-            return flood_model_yolo11
-    if "5,090" in choice_str or "vietnam" in choice_str or "v8" in choice_str:
-        if flood_model_vietnam is not None:
-            return flood_model_vietnam
-    if "cũ" in choice_str or "yolov8s_flood_best" in choice_str:
-        return flood_model_old if flood_model_old is not None else flood_model
-    return flood_model if flood_model is not None else (flood_model_aunet if flood_model_aunet is not None else flood_model_yolo11m)
+def get_selected_flood_model(*args, **kwargs):
+    """Lấy mô hình phân đoạn nước YOLOv8s."""
+    return flood_model
 
 
 def get_gauge_dropdown_choices():
@@ -964,40 +932,6 @@ def on_tab5_remove_active_gauge(active_gid, state_data, **kwargs):
         state_data,
         msg
     )
-
-
-def on_tab5_model_changed(new_model_choice, state_data, flood_conf):
-    """Xử lý khi người dùng chọn mô hình AI phân đoạn ngập lụt."""
-    global CURRENT_SELECTED_FLOOD_CHOICE
-    CURRENT_SELECTED_FLOOD_CHOICE = new_model_choice
-    active_flood = get_selected_flood_model(new_model_choice)
-
-    # Nếu đang phát trực tiếp video hoặc camera: luồng live sẽ tự động dùng mô hình mới ở frame kế tiếp
-    if LIVE_STREAM_STATE.get("active", False):
-        status = f"<div style='color:#38bdf8;'>🤖 <b>Đã kích hoạt mô hình: {new_model_choice}</b> (áp dụng ngay vào luồng phát trực tiếp)</div>"
-        return gr.skip(), gr.skip(), gr.skip(), status
-
-    # Nếu đang xem ảnh tĩnh hoặc video đã dừng/tua:
-    base_frame = state_data.get("base_frame") if state_data else None
-    if base_frame is None:
-        status = f"<div style='color:#38bdf8;'>🤖 <b>Đã kích hoạt mô hình: {new_model_choice}</b></div>"
-        return gr.skip(), gr.skip(), gr.skip(), status
-
-    try:
-        cur_conf = float(flood_conf) if flood_conf is not None else 0.25
-        hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
-            base_frame, global_multi_gauge_manager, global_tab5_arbiter,
-            active_flood, None,
-            flood_conf=cur_conf, mode="Cột mốc"
-        )
-        h_f, w_f = hud_rgb.shape[:2]
-        if w_f > 960:
-            scale_ratio = 960.0 / w_f
-            hud_rgb = cv2.resize(hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
-        status_info = f"<div style='color:#22c55e;'>🤖 <b>Đã chuyển sang mô hình: {new_model_choice}</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-        return hud_rgb, df, alarm_html, status_info
-    except Exception as e:
-        return gr.skip(), gr.skip(), gr.skip(), f"<div style='color:red;'>⚠️ Lỗi cập nhật mô hình: {e}</div>"
 
 
 def on_tab5_flood_conf_changed(new_conf, state_data):
@@ -1780,18 +1714,6 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             )
                             btn_tab5_delete_gauge = gr.Button("🗑️ Xóa cột mốc", variant="stop", scale=1)
 
-                        tab5_model_dropdown = gr.Dropdown(
-                            choices=[
-                                "🌊 AUNet SOTA (DisLA + Swin Attention 86.5% IoU)",
-                                "🚀 YOLO11m-seg (vietnam_flood_yolo11m_seg.pt)",
-                                "⚡ YOLO11s-seg (vietnam_flood_yolo11s_seg.pt)",
-                                "📦 YOLOv8s-seg (vietnam_flood_yolov8s_seg.pt)",
-                            ],
-                            value=CURRENT_SELECTED_FLOOD_CHOICE,
-                            label="🧠 Mô Hình AI Phân Đoạn Nước Ngập",
-                            interactive=True
-                        )
-
                         tab5_flood_conf = gr.Slider(0.10, 0.90, value=0.25, step=0.05, label="🎯 Ngưỡng Nước (Flood Conf)")
 
                 # CỘT BÊN PHẢI: HIỂN THỊ KHUNG HÌNH VIDEO & THIẾT LẬP MẪU MỐC THƯỚC ĐO
@@ -2085,11 +2007,6 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         tab5_flood_conf.release(
             fn=on_tab5_flood_conf_changed,
             inputs=[tab5_flood_conf, tab5_click_state],
-            outputs=[tab5_calib_canvas, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
-        )
-        tab5_model_dropdown.change(
-            fn=on_tab5_model_changed,
-            inputs=[tab5_model_dropdown, tab5_click_state, tab5_flood_conf],
             outputs=[tab5_calib_canvas, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
         )
 
