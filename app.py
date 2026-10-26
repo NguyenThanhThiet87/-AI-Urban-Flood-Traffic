@@ -7,7 +7,7 @@ Hệ Thống Đo Độ Sâu Ngập Lụt Đô Thị Theo Thủy Chuẩn Mốc (V
   - Mạng Lưới Đa Mốc Thủy Chuẩn Cố Định: Stepped Cascading Staff Gauge Network (SCSG-Net)
     (Tiêu chuẩn USGS TM 3-A7, ISO 4373:2022 & Cây quyết định 4 quy tắc chuyển giao cao trình)
   - Phân Đoạn Mặt Nước: YOLO11s-seg (C2PSA Attention, imgsz 800px) huấn luyện chuyên biệt trên ảnh ngập thực tế Việt Nam
-  - Giám Sát Phương Tiện & Ùn Tắc: YOLO11s (C3k2 Backbone, 90.8% mAP50) + ByteTrack thời gian thực
+  - Giám Sát Phương Tiện & Ùn Tắc: YOLOv8s (Backbone C2f, High-Recall VN Traffic) + ByteTrack thời gian thực 30+ FPS
   - Triển khai tối ưu trên Hugging Face Spaces & Máy chủ biên thời gian thực
 ================================================================================
 """
@@ -214,9 +214,9 @@ else:
     else:
         print(f"   [+] Thiết bị suy luận: {device}")
 
-# Tải mô hình Phân đoạn ngập lụt (YOLO11s C2PSA) & Theo dõi phương tiện (YOLO11s)
+# Tải mô hình Phân đoạn ngập lụt (YOLO11s C2PSA) & Theo dõi phương tiện (YOLOv8s High-Recall)
 flood_model = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
-vehicle_model = YOLO(str(VEHICLE_YOLO11_PATH)) if VEHICLE_YOLO11_PATH.exists() else (YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None))
+vehicle_model = YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(VEHICLE_YOLO11_PATH)) if VEHICLE_YOLO11_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None))
 
 # Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
 if torch.cuda.is_available() and not is_zero_gpu:
@@ -235,7 +235,7 @@ if torch.cuda.is_available() and not is_zero_gpu:
         print(f"⚠️ Cảnh báo khởi tạo GPU Warmup: {e}")
 
 active_model_name = "vietnam_flood_yolo11s_seg.pt (YOLO11s C2PSA - Clean 8K 800px)" if flood_model is not None else "N/A"
-active_veh_name = "yolo11s_vehicle.pt (YOLO11s SOTA 90.8% mAP50)" if VEHICLE_YOLO11_PATH.exists() else ("yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt")
+active_veh_name = "yolov8s_vehicle.pt (YOLOv8s Small - High Recall VN Traffic)" if VEHICLE_MODEL_PATH.exists() else ("yolo11s_vehicle.pt (YOLO11s Small)" if VEHICLE_YOLO11_PATH.exists() else "yolov8n.pt")
 print(f"   [+] Đã nạp thành công mô hình Flood [{active_model_name}] & Vehicle Tracking [{active_veh_name}] (YOLO + ByteTrack)!")
 
 
