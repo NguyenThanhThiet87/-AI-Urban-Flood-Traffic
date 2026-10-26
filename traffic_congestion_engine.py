@@ -495,7 +495,7 @@ class TrafficCongestionAnalyzer:
             pts_px = [(int(round(rx * w)), int(round(ry * h))) for rx, ry in self.roi_points_norm]
             roi_poly_px = np.array(pts_px, dtype=np.int32).reshape((-1, 1, 2))
 
-        # 2. Phát hiện và theo dõi phương tiện bằng YOLOv8s + ByteTrack (imgsz=640, CLAHE + Bộ lọc Đa lớp Giao thông VN)
+        # 2. Phát hiện và theo dõi phương tiện bằng YOLO11s + ByteTrack (imgsz=640, CLAHE + Bộ lọc Đa lớp Giao thông VN)
         if vehicle_model is not None:
             try:
                 det_frame = self._enhance_frame_for_detection(work_frame)

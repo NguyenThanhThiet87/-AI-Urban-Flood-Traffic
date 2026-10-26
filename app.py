@@ -6,7 +6,8 @@
 Hệ Thống Đo Độ Sâu Ngập Lụt Đô Thị Theo Thủy Chuẩn Mốc (Virtual Staff Gauge & SCSG-Net):
   - Mạng Lưới Đa Mốc Thủy Chuẩn Cố Định: Stepped Cascading Staff Gauge Network (SCSG-Net)
     (Tiêu chuẩn USGS TM 3-A7, ISO 4373:2022 & Cây quyết định 4 quy tắc chuyển giao cao trình)
-  - Phân Đoạn Mặt Nước: YOLOv8s-seg huấn luyện trên 5,090 ảnh ngập lụt thực tế Việt Nam
+  - Phân Đoạn Mặt Nước: YOLO11s-seg (C2PSA Attention, imgsz 800px) huấn luyện chuyên biệt trên ảnh ngập thực tế Việt Nam
+  - Giám Sát Phương Tiện & Ùn Tắc: YOLO11s (C3k2 Backbone, 90.8% mAP50) + ByteTrack thời gian thực
   - Triển khai tối ưu trên Hugging Face Spaces & Máy chủ biên thời gian thực
 ================================================================================
 """
