@@ -22,6 +22,7 @@ import torch
 from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
+from aunet_segmenter import AUNetFloodSegmenter
 
 # Vá lỗi tương thích giữa Gradio 4.44 và Starlette 0.38+ / 1.0+ (TypeError: unhashable type: 'dict')
 try:
@@ -193,6 +194,7 @@ if DEFAULT_GAUGE_VIDEO:
     except Exception as e:
         print(f"⚠️ Không thể trích xuất khung hình khởi tạo: {e}")
 
+AUNET_FLOOD_MODEL_PATH = BASE_DIR / "models" / "aunet_flood_sota.pth"
 VIETNAM_FLOOD_MODEL_PATH = BASE_DIR / "models" / "vietnam_flood_yolov8s_seg.pt"
 VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8s_vehicle.pt"
 COCO_VEHICLE_MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
@@ -212,8 +214,8 @@ else:
     else:
         print(f"   [+] Thiết bị suy luận: {device}")
 
-# Tải mô hình Phân đoạn ngập lụt (YOLOv8s chuẩn) & Theo dõi phương tiện (YOLOv8s)
-flood_model = YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None
+# Tải mô hình Phân đoạn ngập lụt (AUNet SOTA 86.5% IoU) & Theo dõi phương tiện (YOLOv8s)
+flood_model = AUNetFloodSegmenter(str(AUNET_FLOOD_MODEL_PATH), device=device) if AUNET_FLOOD_MODEL_PATH.exists() else (YOLO(str(VIETNAM_FLOOD_MODEL_PATH)) if VIETNAM_FLOOD_MODEL_PATH.exists() else None)
 vehicle_model = YOLO(str(VEHICLE_MODEL_PATH)) if VEHICLE_MODEL_PATH.exists() else (YOLO(str(COCO_VEHICLE_MODEL_PATH)) if COCO_VEHICLE_MODEL_PATH.exists() else None)
 
 # Đưa trực tiếp các mô hình lên GPU VRAM và thực hiện Warmup (chỉ khi có GPU cố định, không phải ZeroGPU dynamic)
@@ -232,13 +234,13 @@ if torch.cuda.is_available() and not is_zero_gpu:
     except Exception as e:
         print(f"⚠️ Cảnh báo khởi tạo GPU Warmup: {e}")
 
-active_model_name = "vietnam_flood_yolov8s_seg.pt (YOLOv8s-seg 5,090 ảnh VN)" if flood_model is not None else "N/A"
+active_model_name = "aunet_flood_sota.pth (AUNet DisLA+Swin SOTA 86.5% IoU)" if isinstance(flood_model, AUNetFloodSegmenter) else ("vietnam_flood_yolov8s_seg.pt (YOLOv8s-seg 5,090 ảnh VN)" if flood_model is not None else "N/A")
 active_veh_name = "yolov8s_vehicle.pt (YOLOv8s Small)" if VEHICLE_MODEL_PATH.exists() else "yolov8n.pt"
 print(f"   [+] Đã nạp thành công mô hình Flood [{active_model_name}] & Vehicle Tracking [{active_veh_name}] (YOLO + ByteTrack)!")
 
 
 def get_selected_flood_model(*args, **kwargs):
-    """Lấy mô hình phân đoạn nước YOLOv8s."""
+    """Lấy mô hình phân đoạn nước ngập (AUNet SOTA)."""
     return flood_model
 
 
