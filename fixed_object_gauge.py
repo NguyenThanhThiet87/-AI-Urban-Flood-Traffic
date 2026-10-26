@@ -1450,7 +1450,7 @@ def process_single_frame_gauge(frame_bgr, gauge, flood_model, flood_conf=0.25):
     out_frame = frame_bgr.copy()
     if np.any(water_mask >= float(flood_conf)):
         blue_layer = np.zeros_like(out_frame)
-        blue_layer[water_mask >= float(flood_conf)] = [235, 140, 40]
+        blue_layer[water_mask >= float(flood_conf)] = [255, 50, 0]
         out_frame = cv2.addWeighted(out_frame, 1.0, blue_layer, 0.30, 0)
 
     ann_bgr, measured_cm, is_alarm, status, conf = gauge.render_on_frame(
@@ -1515,7 +1515,7 @@ def process_single_frame_multi_gauge(frame_bgr, multi_manager, flood_model, floo
     out_frame = frame_bgr.copy()
     if np.any(water_mask >= float(flood_conf)):
         blue_layer = np.zeros_like(out_frame)
-        blue_layer[water_mask >= float(flood_conf)] = [235, 140, 40]
+        blue_layer[water_mask >= float(flood_conf)] = [255, 50, 0]
         out_frame = cv2.addWeighted(out_frame, 1.0, blue_layer, 0.30, 0)
 
     ann_bgr, fused_z, is_alarm, status, conf, fused_dict, details = multi_manager.render_multi_on_frame(

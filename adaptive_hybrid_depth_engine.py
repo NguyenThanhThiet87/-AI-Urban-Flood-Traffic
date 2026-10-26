@@ -172,7 +172,7 @@ def render_hybrid_xray_hud(img_bgr: np.ndarray,
                            flood_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Vẽ Giao diện X-Ray HUD Tổng hợp Thời gian thực:
-    - Mặt nạ phân đoạn nước bán trong suốt (Cyan Tint BGR [235, 140, 40] + Shoreline Contour)
+    - Mặt nạ phân đoạn nước bán trong suốt (Cyan Tint BGR [255, 50, 0] + Shoreline Contour)
     - BBox xe nổi (Xanh lá)
     - BBox xe chìm bán trong suốt (Cam X-Ray)
     - Vạch tiếp đất ảo dưới nước (Vàng dạ quang GROUND: -X cm)
@@ -189,16 +189,16 @@ def render_hybrid_xray_hud(img_bgr: np.ndarray,
             thresh = 0.25 if m_max <= 1.0 else 30.0
             water_bin = (flood_mask > thresh).astype(np.uint8)
             if np.any(water_bin > 0):
-                # Lớp màu xanh nước biển bán trong suốt (Cyan BGR: [235, 140, 40])
+                # Lớp màu xanh nước biển bán trong suốt (Cyan BGR: [255, 50, 0])
                 water_tint = np.zeros_like(hud)
-                water_tint[water_bin > 0] = [235, 140, 40]
-                hud = cv2.addWeighted(hud, 1.0, water_tint, 0.35, 0)
+                water_tint[water_bin > 0] = [255, 50, 0]
+                hud = cv2.addWeighted(hud, 1.0, water_tint, 0.40, 0)
 
                 # Vẽ đường viền ranh giới mặt nước (Shorelines)
                 contours, _ = cv2.findContours(water_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 valid_cnts = [c for c in contours if cv2.contourArea(c) > 40]
                 if valid_cnts:
-                    cv2.drawContours(hud, valid_cnts, -1, (255, 230, 0), 1, cv2.LINE_AA)
+                    cv2.drawContours(hud, valid_cnts, -1, (255, 160, 20), 1, cv2.LINE_AA)
         except Exception as e:
             print(f"⚠️ Lỗi vẽ mặt nạ nước: {e}")
 
