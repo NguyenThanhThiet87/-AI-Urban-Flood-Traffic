@@ -515,7 +515,7 @@ class TrafficCongestionAnalyzer:
                     results = vehicle_model.predict(
                         det_frame,
                         conf=base_conf,
-                        iou=0.45,
+                        iou=0.48,
                         classes=target_classes,
                         imgsz=640,
                         device=INFER_DEVICE,
@@ -525,7 +525,7 @@ class TrafficCongestionAnalyzer:
                     results = vehicle_model.track(
                         det_frame,
                         conf=base_conf,
-                        iou=0.45,
+                        iou=0.48,
                         classes=target_classes,
                         tracker="bytetrack.yaml",
                         persist=True,

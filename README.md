@@ -16,7 +16,7 @@ short_description: Real-time Urban Flood Depth & Traffic Congestion AI Monitor
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-red.svg)](https://pytorch.org/)
-[![YOLO11](https://img.shields.io/badge/YOLO11-Ultralytics-blueviolet.svg)](https://github.com/ultralytics/ultralytics)
+[![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-orange.svg)](https://github.com/ultralytics/ultralytics)
 [![Hydrometry: ISO 4373](https://img.shields.io/badge/Standard-ISO%204373%3A2022-blue.svg)](https://www.iso.org/standard/76508.html)
 [![Hydrometry: USGS TM 3-A7](https://img.shields.io/badge/Standard-USGS%20TM%203--A7-green.svg)](https://pubs.usgs.gov/tm/tm3a7/)
 [![ITS: TRB HCM 2020](https://img.shields.io/badge/Standard-TRB%20HCM%202020-purple.svg)](https://www.trb.org/)
@@ -28,7 +28,7 @@ short_description: Real-time Urban Flood Depth & Traffic Congestion AI Monitor
 ## 📌 Tóm Tắt Khoa Học (Abstract)
 
 Dự án phát triển hệ thống giám sát thị giác đơn (Monocular Vision-Based Surveillance) tích hợp đa nhiệm, giải quyết đồng thời hai thách thức lớn trong quản lý đô thị thông minh:
-1. **Đo độ sâu ngập lụt đô thị không tiếp xúc (Contactless Inundation Depth Telemetry)**: Kết hợp mô hình phân đoạn ngữ nghĩa mặt nước ngập `YOLO11s-seg` (kiến trúc C3k2 tích hợp cơ chế chú ý không gian C2PSA, phân giải cao 800px) với **Mạng lưới mốc thủy chuẩn bậc thang phân cấp (Stepped Cascading Staff Gauge Network - SCSG-Net)** tuân thủ tiêu chuẩn **USGS TM 3-A7** và **ISO 4373:2022**. Thuật toán giải quyết triệt để biến dạng quang học phối cảnh đơn thị giác qua bất biến xạ ảnh 1D (Look-Up Table $\mathcal{O}(1)$) và phát hiện ngấn nước bằng tối ưu hóa điểm chuyển pha MLE trong $\mathcal{O}(N)$ thời gian thực.
+1. **Đo độ sâu ngập lụt đô thị không tiếp xúc (Contactless Inundation Depth Telemetry)**: Kết hợp mô hình phân đoạn ngữ nghĩa mặt nước ngập `YOLOv8s-seg` (huấn luyện trên 5,090 ảnh đường phố Việt Nam, màu phân đoạn Xanh Dương `#1E90FF`) với **Mạng lưới mốc thủy chuẩn bậc thang phân cấp (Stepped Cascading Staff Gauge Network - SCSG-Net)** tuân thủ tiêu chuẩn **USGS TM 3-A7** và **ISO 4373:2022**. Thuật toán giải quyết triệt để biến dạng quang học phối cảnh đơn thị giác qua bất biến xạ ảnh 1D (Look-Up Table $\mathcal{O}(1)$) và phát hiện ngấn nước bằng tối ưu hóa điểm chuyển pha MLE trong $\mathcal{O}(N)$ thời gian thực.
 2. **Ước lượng trạng thái giao thông vĩ mô (Macroscopic Traffic State Estimation - TSE)**: Ứng dụng mô hình bám vết đa đối tượng **YOLOv8s + ByteTrack** (đạt độ tin cậy vượt trội trên dòng xe đô thị Việt Nam, thời gian thực 30+ FPS) kết hợp cảm biến vòng lặp ảo (Virtual Loop Detector - VLD) nhằm ước lượng các biến số dòng giao thông: Vận tốc trung bình không gian ($v_s$), Lưu lượng thông hành ($q$), Mật độ xe con tiêu chuẩn quy đổi ($\text{PCU}$ theo **TCVN 4054:2005**) và đánh giá Cấp độ phục vụ đường đô thị (**Level of Service - LOS**) theo cẩm nang năng lực đường bộ **TRB HCM 2020**.
 
 * 🚀 **Trải nghiệm trực tiếp (Live Demo Cloud ZeroGPU):** [Hugging Face Space](https://huggingface.co/spaces/thietnt/AI-Urban-Flood-Traffic-Monitor)
@@ -54,7 +54,7 @@ flowchart TD
     %% AI Core
     subgraph AI_CORE["🧠 Lõi Trí Tuệ Nhân Tạo (Dual Deep Learning Engine)"]
         direction TB
-        YOLO_SEG["Mô hình 1: YOLO11s-seg<br/>(Urban Surface Water Semantic Segmentation - C2PSA 800px)"]
+        YOLO_SEG["Mô hình 1: YOLOv8s-seg<br/>(Urban Surface Water Semantic Segmentation - 5,090 ảnh VN)"]
         YOLO_DET["Mô hình 2: YOLOv8s + ByteTrack<br/>(Multi-Object Detection & Motion Association - Real-Time 30+ FPS)"]
     end
 
@@ -228,7 +228,7 @@ Toàn bộ các công thức toán học và giải thuật trong dự án đư�
 
 | Mô hình | Trọng số file | Kích thước | Kiến trúc mạng & Đặc tính kỹ thuật |
 | :--- | :--- | :--- | :--- |
-| **Phân đoạn ngập lụt** | `vietnam_flood_yolo11s_seg.pt` | **20.55 MB** | Backbone C3k2 + C2PSA Spatial Attention + Segment Prototype Head (Phân đoạn đa giác ranh giới mặt nước ngập huấn luyện 100 Epochs trên ảnh ngập đường phố Việt Nam, độ phân giải cao 800px, màu phân đoạn Xanh Dương `#1E90FF`, kích hoạt `retina_masks=True`) |
+| **Phân đoạn ngập lụt** | `vietnam_flood_yolov8s_seg.pt` | **23.86 MB** | Backbone C2f + Prototype Mask Head (Phân đoạn đa giác ranh giới mặt nước ngập huấn luyện trên 5,090 ảnh đường phố Việt Nam, màu phân đoạn Xanh Dương `#1E90FF`, kích hoạt `retina_masks=True`) |
 | **Theo dõi phương tiện** | `yolov8s_vehicle.pt` | **22.59 MB** | Backbone C2f + Decoupled Head + ByteTrack Association (Nhận diện đa lớp xe máy, ô tô, xe tải, xe buýt, xe đạp với độ tin cậy vượt trội trên camera CCTV đường phố Việt Nam, độ phân giải 640px đạt 30+ FPS) |
 
 ---
